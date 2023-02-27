@@ -3,7 +3,7 @@ import gc
 import os
 import sys
 import time
-
+import omnifold
 import energyflow as ef
 import numpy as np
 
@@ -309,3 +309,5 @@ def pad_events(events, val=0, max_length=None):
 
 def get_max_length(events):
     return max([event.shape[0] for event in events])
+if __name__ == '__main__':
+    main(sys.argv[1:])
