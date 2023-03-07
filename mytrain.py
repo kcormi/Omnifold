@@ -11,7 +11,7 @@ import numpy as np
 MACHINES = {
     'multifold': {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
-        'results_path': '/work/jinw/omnifold/OmniFold/results_multifold_maxweight10_MCEPOS_unfoldCP1_1p3M_eff_acc_fix'
+        'results_path': '/work/jinw/omnifold/OmniFold/results_multifold_maxweight10_MCEPOS_unfoldCP1_1p3M_eff_acc_ensemble4'
     },
     'omnifold': {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
@@ -194,6 +194,7 @@ def construct_parser(args):
     parser.add_argument('--save-full-model', action='store_true')
     parser.add_argument('--val-frac', '-val', type=float, default=0.2)
     parser.add_argument('--verbose', '-v', type=int, choices=[0, 1, 2], default=2)
+    parser.add_argument('--ensemble', type=int,default=1)
 
     # training settings
     parser.add_argument('--max-iter', '-i', type=int, default=1)
@@ -304,7 +305,7 @@ def train_omnifold(i):
     ws = omnifold.omnifold(X_gen, Y_gen, X_det, Y_det, wdata, winit, (Model, det_args), (Model, mc_args), fitargs, 
                   val=args.val_frac, it=args.unfolding_iterations, trw_ind=args.step2_ind,
                   weights_filename=os.path.join(args.results_path, 'weights', args.name),
-                  delete_global_arrays=True)
+                  delete_global_arrays=True,ensemble=args.ensemble)
 
     print('Finished OmniFold {} in {:.3f}s'.format(i, time.time() - start))
 
@@ -385,7 +386,7 @@ def train_omnifold_fitsys(i):
     winit = np.sum(wdata)/nsim*np.ones(nsim)
     ws = omnifold.omnifold_sys(X, Y, wdata, winit, (Model, det_mc_args),
                   fitargs, val=args.val_frac, trw_ind=args.step2_ind,
-                  weights_filename=os.path.join(args.results_path, 'weights', args.name))
+                  weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
     print('Finished OmniFold {} in {:.3f}s'.format(i, time.time() - start))
 
 def train_omnifold_fitgen(i):
@@ -445,7 +446,7 @@ def train_omnifold_fitgen(i):
     winit = np.sum(wdata)/nsim*np.ones(nsim)
     ws = omnifold.omnifold_sys(X, Y, wdata, winit, (Model, det_mc_args),
                   fitargs, val=args.val_frac, trw_ind=args.step2_ind,
-                  weights_filename=os.path.join(args.results_path, 'weights', args.name))
+                  weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
     print('Finished OmniFold {} in {:.3f}s'.format(i, time.time() - start))
 
 def load_obs():
@@ -585,7 +586,7 @@ def train_manyfold(i):
       winit = preweightMC[-1]    
     ws = omnifold.omnifold(X_gen, Y_gen, X_det, Y_det, wdata, winit, (Model, det_args), (Model, mc_args), 
                   fitargs, val=args.val_frac, it=args.unfolding_iterations, trw_ind=args.step2_ind,
-                  weights_filename=os.path.join(args.results_path, 'weights', args.name))
+                  weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
 
     print('Finished ManyFold {} in {:.3f}s\n'.format(i, time.time() - start))
     print("Weight in ",os.path.join(args.results_path, 'weights', args.name))
@@ -658,15 +659,23 @@ def train_manyfold_acceptance_efficiency(i):
 
     # specify the model and the training parameters
     model1_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step1')
+    model1b_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step1b')
     model2_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step2')
+    model2b_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step2b')
     Model = ef.archs.DNN
     print("DNN size",args.F_sizes)
     det_args = {'input_dim': len(recokeys), 'dense_sizes': args.F_sizes,
                 'patience': args.patience, 'filepath': model1_fp, 'save_weights_only': args.save_full_model,
                 'modelcheck_opts': {'save_best_only': args.save_best_only, 'verbose': 0}}
+    mc_args_1b = {'input_dim': len(genkeys), 'dense_sizes': args.F_sizes,
+               'patience': args.patience, 'filepath': model1b_fp, 'save_weights_only': args.save_full_model,
+               'modelcheck_opts': {'save_best_only': args.save_best_only, 'verbose': 0}}
     mc_args = {'input_dim': len(genkeys), 'dense_sizes': args.F_sizes,
                'patience': args.patience, 'filepath': model2_fp, 'save_weights_only': args.save_full_model,
                'modelcheck_opts': {'save_best_only': args.save_best_only, 'verbose': 0}}
+    det_args_2b = {'input_dim': len(recokeys), 'dense_sizes': args.F_sizes,
+                'patience': args.patience, 'filepath': model2b_fp, 'save_weights_only': args.save_full_model,
+                'modelcheck_opts': {'save_best_only': args.save_best_only, 'verbose': 0}}
     fitargs = {'batch_size': args.batch_size, 'epochs': args.epochs, 'verbose': args.verbose,
                'weight_clip_min': args.weight_clip_min, 'weight_clip_max': args.weight_clip_max}
 
@@ -695,9 +704,9 @@ def train_manyfold_acceptance_efficiency(i):
       winit = preweightMC[-1]
 
     ws = omnifold.omnifold_acceptance_efficiency(X_gen, Y_gen, X_det, Y_det,X_det_acc_reweight,Y_det_acc_reweight, wdata, winit, gen_pass_gen,gen_pass_reco, det_pass_gen,det_pass_reco,det_pass_gen_acc_reweight,det_pass_reco_acc_reweight,
-                  (Model, det_args), (Model, mc_args),
+                  (Model, det_args), (Model, mc_args),(Model, mc_args_1b),(Model, det_args_2b),
                   fitargs, val=args.val_frac, it=args.unfolding_iterations, trw_ind=args.step2_ind,
-                  weights_filename=os.path.join(args.results_path, 'weights', args.name))
+                  weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
 
     print('Finished ManyFold {} in {:.3f}s\n'.format(i, time.time() - start))
     print("Weight in ",os.path.join(args.results_path, 'weights', args.name))
@@ -763,7 +772,7 @@ def train_manyfold_fitsys(i):
     winit = np.sum(wdata)/nsim*np.ones(nsim)
     ws = omnifold.omnifold_sys(X, Y, wdata, winit, (Model, det_mc_args),
                   fitargs, val=args.val_frac, trw_ind=args.step2_ind,
-                  weights_filename=os.path.join(args.results_path, 'weights', args.name))
+                  weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
 
     print('Finished ManyFold {} in {:.3f}s\n'.format(i, time.time() - start))
     print("Weight in ",os.path.join(args.results_path, 'weights', args.name))
@@ -821,7 +830,7 @@ def train_manyfold_fitgen(i):
     winit = np.sum(wdata)/nsim*np.ones(nsim)
     ws = omnifold.omnifold_sys(X, Y, wdata, winit, (Model, det_mc_args),
                   fitargs, val=args.val_frac, trw_ind=args.step2_ind,
-                  weights_filename=os.path.join(args.results_path, 'weights', args.name))
+                  weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
 
     print('Finished ManyFold {} in {:.3f}s\n'.format(i, time.time() - start))
     print("Weight in ",os.path.join(args.results_path, 'weights', args.name))
@@ -913,7 +922,7 @@ def train_unifold(i):
           winit = preweightMC[-1]
         ws = omnifold.omnifold(X_gen, Y_gen, X_det, Y_det, wdata, winit, (Model, det_args), (Model, mc_args), 
                       fitargs, val=args.val_frac, it=args.unfolding_iterations, trw_ind=args.step2_ind,
-                      weights_filename=os.path.join(args.results_path, 'weights', ob_filename))
+                      weights_filename=os.path.join(args.results_path, 'weights', ob_filename),ensemble=args.ensemble)
 
         print('Finished UniFold {} for {} in {:.3f}s\n'.format(i, key, time.time() - start))
 

@@ -2,13 +2,13 @@
 #
 #SBATCH --job-name=test_job 
 #SBATCH --account=gpu_gres               # to access gpu resources
-#SBATCH --partition=qgpu                                           
+#SBATCH --partition=gpu                                           
 #SBATCH --nodes=1                       # request to run job on single node                                       
 #SBATCH --ntasks=10                    # request 10 CPU's (t3gpu01/02: balance between CPU and GPU : 5CPU/1GPU)      
 ##SBATCH --mem-per-cpu=10G
 #SBATCH --gres=gpu:1                     # request  for two GPU's on machine, this is total  amount of GPUs for job        
-#SBATCH --mem=20G                     # memory (per job)
-#SBATCH --time=0-00:30                   # time  in format DD-HH:MM
+#SBATCH --mem=40G                     # memory (per job)
+#SBATCH --time=1-12:00                   # time  in format DD-HH:MM
 
 
 # each node has local /scratch space to be used during job run
@@ -124,7 +124,7 @@ echo CUDA_VISIBLE_DEVICES : $CUDA_VISIBLE_DEVICES
 #python mytrain.py -m omnifold -u omnifold -mc Pythia8EPOS -data Pythia8EPOS_trkdrop --input-dim 3 -e 50 -ui 20 --save-best-only --weight-clip-max 10.0 --dosysweight
 
 #Unfold using Pythia8EPOS as MC to unfold CP1
-python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 20 --weight-clip-max 10.0 --save-best-only --eff-acc
+python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 20 --weight-clip-max 10.0 --save-best-only --eff-acc --ensemble 4
 #python mytrain.py -m omnifold -u omnifold -mc Pythia8EPOS -data Pythia8CP1 --input-dim 3 -e 50 -ui 50 --save-best-only --weight-clip-max 10.0 --dosysweight
 
 #python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 70 --weight-clip-max 100.0 --save-best-only -sF 100 100

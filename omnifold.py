@@ -22,23 +22,41 @@ def reweight(X, Y, w, model, filepath, fitargs, val_data=None):
     for argkey in fitargs.keys():
       if "weight_clip" not in argkey:
         fitargs_tf[argkey]=fitargs[argkey]
-    model.fit(X, Y, sample_weight=w, **fitargs_tf, **val_dict)
-    model.save_weights(filepath)
-    preds = model.predict(X, batch_size=fitargs.get('batch_size', 500))[:,1]
-    #preds = model.predict(X, batch_size=10*fitargs.get('batch_size', 500))[:,1]
+    preds_ensemble=[]
+    ensemble=1
+    if isinstance(model,list):
+      ensemble=len(model)
+    for i_ensemble in range(ensemble):
+        print("ensemble",i_ensemble)
+        if isinstance(model,list):
+          model_ensemble=model[i_ensemble]
+          if len(filepath)==ensemble:
+            filepath_ensemble=filepath[i_ensemble]
+          else:
+            filepath_ensemble=None
+        else:
+          model_ensemble=model
+          filepath_ensemble=filepath
+        model_ensemble.fit(X, Y, sample_weight=w, **fitargs_tf, **val_dict)
+        model_ensemble.save_weights(filepath_ensemble)
+        preds = model_ensemble.predict(X, batch_size=fitargs.get('batch_size', 500))[:,1]
+        #preds = model.predict(X, batch_size=10*fitargs.get('batch_size', 500))[:,1]
     
-    # concatenate validation predictions into training predictions
+        # concat_ensembleenate validation predictions into training predictions
+        if val_data is not None:
+            #preds_val = model.predict(val_data[0], batch_size=10*fitargs.get('batch_size', 500))[:,1]
+            preds_val = model_ensemble.predict(val_data[0], batch_size=fitargs.get('batch_size', 500))[:,1]
+            preds_ensemble.append(np.concatenate((preds, preds_val)))
+        else:
+            preds_ensemble.append(preds)
+    preds_mean=np.mean(np.array(preds_ensemble),axis=0)
     if val_data is not None:
-        #preds_val = model.predict(val_data[0], batch_size=10*fitargs.get('batch_size', 500))[:,1]
-        preds_val = model.predict(val_data[0], batch_size=fitargs.get('batch_size', 500))[:,1]
-        preds = np.concatenate((preds, preds_val))
         w = np.concatenate((w, val_data[2]))
-
-    w *= np.clip(preds/(1 - preds + 10**-50), fitargs.get('weight_clip_min', 0.), fitargs.get('weight_clip_max', np.inf))
+    w *= np.clip(preds_mean/(1 - preds_mean + 10**-50), fitargs.get('weight_clip_min', 0.), fitargs.get('weight_clip_max', np.inf))
     return w
 
 
-def reweight_acc_eff(X, Y, w, model, fitargs, val_data=None, apply_data=None):
+def reweight_acc_eff(X, Y, w, model,filepath, fitargs, val_data=None, apply_data=None):
 
     # permute the data, fit the model, and get preditions
     #perm = np.random.permutation(len(X))
@@ -48,12 +66,27 @@ def reweight_acc_eff(X, Y, w, model, fitargs, val_data=None, apply_data=None):
     for argkey in fitargs.keys():
       if "weight_clip" not in argkey:
         fitargs_tf[argkey]=fitargs[argkey]
-    model.fit(X, Y, sample_weight=w, **fitargs_tf, **val_dict)
-    if apply_data is not None:
-      preds = model.predict(apply_data[0],batch_size=fitargs.get('batch_size', 500))[:,1]
-    print("preds:",preds)
-    w = apply_data[1]*np.clip(preds/(1 - preds + 10**-50), fitargs.get('weight_clip_min', 0.), fitargs.get('weight_clip_max', np.inf))
-    print("w:",w)
+    preds_ensemble=[]
+    ensemble=1
+    if isinstance(model,list):
+      ensemble=len(model)
+    for i_ensemble in range(ensemble):
+        if isinstance(model,list):
+          model_ensemble=model[i_ensemble]
+          if len(filepath)==ensemble:
+              filepath_ensemble=filepath[i_ensemble]
+          else:
+              filepath_ensemble=None
+        else:
+          model_ensemble=model
+          filepath_ensemble=filepath
+        model_ensemble.fit(X, Y, sample_weight=w, **fitargs_tf, **val_dict)
+        model_ensemble.save_weights(filepath_ensemble)
+        if apply_data is not None:
+          preds = model_ensemble.predict(apply_data[0],batch_size=fitargs.get('batch_size', 500))[:,1]
+          preds_ensemble.append(preds)
+    preds_mean=np.mean(np.array(preds_ensemble),axis=0)
+    w = apply_data[1]*np.clip(preds_mean/(1 - preds_mean + 10**-50), fitargs.get('weight_clip_min', 0.), fitargs.get('weight_clip_max', np.inf))
     return w
 
 # OmniFold
@@ -65,7 +98,7 @@ def reweight_acc_eff(X, Y, w, model, fitargs, val_data=None, apply_data=None):
 # it: number of iterations
 # trw_ind: which previous weights to use in second step, 0 means use initial, -2 means use previous
 def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_model, fitargs, 
-             val=0.2, it=10, weights_filename=None, trw_ind=0, delete_global_arrays=False):
+             val=0.2, it=10, weights_filename=None, trw_ind=0, delete_global_arrays=False,ensemble=1):
 
     # get arrays (possibly globally)
     X_gen_arr = globals()[X_gen_i] if isinstance(X_gen_i, str) else X_gen_i
@@ -119,32 +152,42 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
             del globals()[Y_gen_i]
 
     # store model filepaths
+    list_model_det_fp=[]
+    list_model_mc_fp=[]
     model_det_fp, model_mc_fp = det_model[1].get('filepath', None), mc_model[1].get('filepath', None)
-    
+    for i_ensemble in range(ensemble):
+      if model_det_fp is not None:
+        list_model_det_fp.append(model_det_fp+"_ensemble"+str(i_ensemble))
+      if model_mc_fp is not None:
+        list_model_mc_fp.append(model_mc_fp+"_ensemble"+str(i_ensemble))
     # iterate the procedure
     for i in range(it):
-
+        list_model_det_fp_i=[]
+        list_model_mc_fp_i=[]
+        list_model_det=[]
+        list_model_mc=[]
         # det filepaths properly
-        if model_det_fp is not None:
-            model_det_fp_i = model_det_fp.format(i)
-            det_model[1]['filepath'] = model_det_fp_i + '_Epoch-{epoch}'
-        if model_mc_fp is not None:
-            model_mc_fp_i = model_mc_fp.format(i)
-            mc_model[1]['filepath'] = model_mc_fp_i + '_Epoch-{epoch}'
-
-        # define models
-        model_det = det_model[0](**det_model[1])
-        model_mc = mc_model[0](**mc_model[1])
+        for i_ensemble in range(ensemble):
+            # det filepaths properly
+            if model_det_fp is not None:
+                list_model_det_fp_i.append(list_model_det_fp[i_ensemble].format(i))
+                det_model[1]['filepath'] = list_model_det_fp_i[i_ensemble] + '_Epoch-{epoch}'
+            if model_mc_fp is not None:
+                list_model_mc_fp_i.append(list_model_mc_fp[i_ensemble].format(i))
+                mc_model[1]['filepath'] = list_model_mc_fp_i[i_ensemble] + '_Epoch-{epoch}'
+            list_model_det.append(det_model[0](**det_model[1]))
+            list_model_mc.append(mc_model[0](**mc_model[1]))
 
         # load weights if not model 0
         if i > 0:
-            model_det.load_weights(model_det_fp.format(i-1))
-            model_mc.load_weights(model_mc_fp.format(i-1))
+            for i_ensemble in range(ensemble):
+                list_model_det[i_ensemble].load_weights(list_model_det_fp[i_ensemble].format(i-1))
+                list_model_mc[i_ensemble].load_weights(listmodel_mc_fp[i_ensemble].format(i-1))
         
         # step 1: reweight sim to look like data
         w = np.concatenate((wdata, ws[-1]))
         w_train, w_val = w[perm_det[:-nval_det]], w[perm_det[-nval_det:]]
-        rw = reweight(X_det_train, Y_det_train, w_train, model_det, model_det_fp_i,
+        rw = reweight(X_det_train, Y_det_train, w_train, list_model_det, list_model_det_fp_i,
                       fitargs, val_data=(X_det_val, Y_det_val, w_val))[invperm_det]
         ws.append(rw[len(wdata):])
         #what if I normalize?
@@ -153,7 +196,7 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
         # step 2: reweight the prior to the learned weighting
         w = np.concatenate((ws[-1], ws[trw_ind]))
         w_train, w_val = w[perm_gen[:-nval_gen]], w[perm_gen[-nval_gen:]]
-        rw = reweight(X_gen_train, Y_gen_train, w_train, model_mc, model_mc_fp_i,
+        rw = reweight(X_gen_train, Y_gen_train, w_train, list_model_mc, list_model_mc_fp_i,
                       fitargs, val_data=(X_gen_val, Y_gen_val, w_val))[invperm_gen]
         ws.append(rw[len(ws[-1]):])
         #ws.append(rw[len(ws[-1]):]*np.sum(ws[trw_ind])/np.sum(rw[len(ws[-1]):]))
@@ -171,8 +214,8 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
 # fitargs: model fit arguments
 # it: number of iterations
 # trw_ind: which previous weights to use in second step, 0 means use initial, -2 means use previous
-def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_i,Y_det_acc_i, wdata, winit, gen_passgen, gen_passreco, det_passgen, det_passreco,det_passgen_acc,det_passreco_acc, det_model, mc_model, fitargs,
-             val=0.2, it=10, weights_filename=None, trw_ind=0, delete_global_arrays=False):
+def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_i,Y_det_acc_i, wdata, winit, gen_passgen, gen_passreco, det_passgen, det_passreco,det_passgen_acc,det_passreco_acc, det_model, mc_model,mc_model_1b,det_model_2b, fitargs,
+             val=0.2, it=10, weights_filename=None, trw_ind=0, delete_global_arrays=False,ensemble=1):
 
     # get arrays (possibly globally)
     X_gen_arr = globals()[X_gen_i] if isinstance(X_gen_i, str) else X_gen_i
@@ -296,27 +339,58 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
 
 
     # store model filepaths
-    model_det_fp, model_mc_fp = det_model[1].get('filepath', None), mc_model[1].get('filepath', None)
+    list_model_det_fp=[]
+    list_model_mc_fp=[]
+    list_model_det_fp_2b=[]
+    list_model_mc_fp_1b=[]
+    model_det_fp, model_mc_fp,model_det_fp_2b, model_mc_fp_1b = det_model[1].get('filepath', None), mc_model[1].get('filepath', None),det_model_2b[1].get('filepath', None), mc_model_1b[1].get('filepath', None)
+    for i_ensemble in range(ensemble):
+      if model_det_fp is not None:
+        list_model_det_fp.append(model_det_fp+"_ensemble"+str(i_ensemble))
+      if model_mc_fp is not None:
+        list_model_mc_fp.append(model_mc_fp+"_ensemble"+str(i_ensemble))
+      if model_det_fp_2b is not None:
+        list_model_det_fp_2b.append(model_det_fp_2b+"_ensemble"+str(i_ensemble))
+      if model_mc_fp_1b is not None:
+        list_model_mc_fp_1b.append(model_mc_fp_1b+"_ensemble"+str(i_ensemble))
 
     # iterate the procedure
     for i in range(it):
-
-        # det filepaths properly
-        if model_det_fp is not None:
-            model_det_fp_i = model_det_fp.format(i)
-            det_model[1]['filepath'] = model_det_fp_i + '_Epoch-{epoch}'
-        if model_mc_fp is not None:
-            model_mc_fp_i = model_mc_fp.format(i)
-            mc_model[1]['filepath'] = model_mc_fp_i + '_Epoch-{epoch}'
-
-        # define models
-        model_det = det_model[0](**det_model[1])
-        model_mc = mc_model[0](**mc_model[1])
+        list_model_det_fp_i=[]
+        list_model_mc_fp_i=[]
+        list_model_det_fp_2b_i=[]
+        list_model_mc_fp_1b_i=[]
+        list_model_det=[]
+        list_model_mc=[]
+        list_model_det_2b=[]
+        list_model_mc_1b=[]
+        for i_ensemble in range(ensemble):
+            # det filepaths properly
+            if model_det_fp is not None:
+                list_model_det_fp_i.append(list_model_det_fp[i_ensemble].format(i))
+                det_model[1]['filepath'] = list_model_det_fp_i[i_ensemble] + '_Epoch-{epoch}'
+            if model_mc_fp is not None:
+                list_model_mc_fp_i.append(list_model_mc_fp[i_ensemble].format(i))
+                mc_model[1]['filepath'] = list_model_mc_fp_i[i_ensemble] + '_Epoch-{epoch}'
+            if model_det_fp_2b is not None:
+                list_model_det_fp_2b_i.append(list_model_det_fp_2b[i_ensemble].format(i))
+                det_model_2b[1]['filepath'] = list_model_det_fp_2b_i[i_ensemble] + '_Epoch-{epoch}'
+            if model_mc_fp_1b is not None:
+                list_model_mc_fp_1b_i.append(list_model_mc_fp_1b[i_ensemble].format(i))
+                mc_model_1b[1]['filepath'] = list_model_mc_fp_1b_i[i_ensemble] + '_Epoch-{epoch}'
+            # define models
+            list_model_det.append(det_model[0](**det_model[1]))
+            list_model_mc.append(mc_model[0](**mc_model[1]))
+            list_model_det_2b.append(det_model_2b[0](**det_model_2b[1]))
+            list_model_mc_1b.append(mc_model_1b[0](**mc_model_1b[1]))
 
         # load weights if not model 0
         if i > 0:
-            model_det.load_weights(model_det_fp.format(i-1))
-            model_mc.load_weights(model_mc_fp.format(i-1))
+            for i_ensemble in range(ensemble):
+                list_model_det[i_ensemble].load_weights(list_model_det_fp[i_ensemble].format(i-1))
+                list_model_mc[i_ensemble].load_weights(listmodel_mc_fp[i_ensemble].format(i-1))
+                list_model_det_2b[i_ensemble].load_weights(list_model_det_fp_2b[i_ensemble].format(i-1))
+                list_model_mc_1b[i_ensemble].load_weights(listmodel_mc_fp_1b[i_ensemble].format(i-1))
 
         # step 1: reweight sim to look like data
         print("Step 1: reweight at det-level")
@@ -325,7 +399,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
 
         rw_perm_det = np.ones(len(w))
         rw_perm_det[det_passreco[perm_det]] = reweight(X_det_train[det_mask_reco_train], Y_det_train[det_mask_reco_train],
-                                              w_train[det_mask_reco_train], model_det, model_det_fp_i,
+                                              w_train[det_mask_reco_train], list_model_det, list_model_det_fp_i,
                                               fitargs, val_data=(X_det_val[det_mask_reco_val], Y_det_val[det_mask_reco_val], w_val[det_mask_reco_val]))
         rw = rw_perm_det[invperm_det]
         rw_step1_tmp=rw[len(wdata):]
@@ -339,7 +413,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
         print("position of gen_mask_gen_noreco==True",np.argwhere(gen_mask_gen_noreco==True))
         print("position of gen_mask_gen_noreco[perm_gen]==True",np.argwhere(gen_mask_gen_noreco[perm_gen]==True))
         rw_perm_gen[gen_mask_gen_noreco[perm_gen]] = reweight_acc_eff(X_gen_train[gen_mask_reco_gen_train], Y_gen_train[gen_mask_reco_gen_train],
-                        w_train[gen_mask_reco_gen_train],model_mc,fitargs,
+                        w_train[gen_mask_reco_gen_train],list_model_mc_1b, list_model_mc_fp_1b_i,fitargs,
                         val_data=(X_gen_val[gen_mask_reco_gen_val], Y_gen_val[gen_mask_reco_gen_val], w_val[gen_mask_reco_gen_val]),
                         apply_data=(np.concatenate([X_gen_train[gen_mask_gen_noreco_train],X_gen_val[gen_mask_gen_noreco_val]],axis=0),
                         np.concatenate([w_train[gen_mask_gen_noreco_train],w_val[gen_mask_gen_noreco_val]])))
@@ -362,7 +436,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
         rw_perm_gen = np.ones(len(w))
      
         rw_perm_gen[gen_passgen[perm_gen]] = reweight(X_gen_train[gen_mask_gen_train], Y_gen_train[gen_mask_gen_train], w_train[gen_mask_gen_train],
-                      model_mc, model_mc_fp_i,
+                      list_model_mc, list_model_mc_fp_i,
                       fitargs, val_data=(X_gen_val[gen_mask_gen_val], Y_gen_val[gen_mask_gen_val], w_val[gen_mask_gen_val]))
         rw =  rw_perm_gen[invperm_gen]
         rw_step2_tmp = rw[len(ws[-1]):]
@@ -373,7 +447,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
         w_train, w_val = w[perm_det_acc[:-nval_det_acc]], w[perm_det_acc[-nval_det_acc:]]
         rw_perm_det_acc = np.ones(len(w))
         rw_perm_det_acc[det_acc_mask_reco_nogen[perm_det_acc]] = reweight_acc_eff(X_det_acc_train[det_acc_mask_reco_gen_train],Y_det_acc_train[det_acc_mask_reco_gen_train],
-                         w_train[det_acc_mask_reco_gen_train],model_det,fitargs,
+                         w_train[det_acc_mask_reco_gen_train],list_model_det_2b,list_model_det_fp_2b_i,fitargs,
                          val_data=(X_det_acc_val[det_acc_mask_reco_gen_val],Y_det_acc_val[det_acc_mask_reco_gen_val],w_val[det_acc_mask_reco_gen_val]),
                          apply_data=(np.concatenate([X_det_acc_train[det_acc_mask_reco_nogen_train],X_det_acc_val[det_acc_mask_reco_nogen_val]],axis=0),
                                      np.concatenate([w_train[det_acc_mask_reco_nogen_train],w_val[det_acc_mask_reco_nogen_val]])))
@@ -390,7 +464,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
 
 
 def omnifold_sys(X_i, Y_i, wdata, winit, det_mc_model, fitargs,
-             val=0.2,  weights_filename=None, trw_ind=0, delete_global_arrays=False):
+             val=0.2,  weights_filename=None, trw_ind=0, delete_global_arrays=False,ensemble=1):
 
     # get arrays (possibly globally)
     X_arr = globals()[X_i] if isinstance(X_i, str) else X_i
@@ -415,18 +489,23 @@ def omnifold_sys(X_i, Y_i, wdata, winit, det_mc_model, fitargs,
             del globals()[Y_i]
 
     # store model filepaths
+    list_model_det_mc_fp=[]
     model_det_mc_fp = det_mc_model[1].get('filepath', None)
+    for i_ensemble in range(ensemble):
+        list_model_det_mc_fp.append(model_det_mc_fp+"_ensemble"+str(i_ensemble))
 
     # det filepaths properly
-    if model_det_mc_fp is not None:
-        model_det_mc_fp_i = model_det_mc_fp.format(0)
-        det_mc_model[1]['filepath'] = model_det_mc_fp_i + '_Epoch-{epoch}'
-
+    list_model_det_mc_fp_i=[]
+    list_model_det_mc=[]
+    for i_ensemble in range(ensemble):
+        if model_det_mc_fp is not None:
+            list_model_det_mc_fp_i.append(list_model_det_mc_fp[i_ensemble].format(i))
+            det_mc_model[1]['filepath'] = list_model_det_mc_fp_i[i_ensemble] + '_Epoch-{epoch}'
+        list_model_det_mc.append(det_mc_model[0](**det_mc_model[1]))
     # define models
-    model_det_mc = det_mc_model[0](**det_mc_model[1])
     w = np.concatenate((wdata, ws[-1]))
     w_train, w_val = w[perm[:-nval]], w[perm[-nval:]]
-    rw = reweight(X_train, Y_train, w_train, model_det_mc, model_det_mc_fp_i,
+    rw = reweight(X_train, Y_train, w_train, list_model_det_mc, list_model_det_mc_fp_i,
                   fitargs, val_data=(X_val, Y_val, w_val))[invperm]
     ws.append(rw[len(wdata):])
     if weights_filename is not None:
