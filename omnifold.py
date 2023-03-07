@@ -182,7 +182,7 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
         if i > 0:
             for i_ensemble in range(ensemble):
                 list_model_det[i_ensemble].load_weights(list_model_det_fp[i_ensemble].format(i-1))
-                list_model_mc[i_ensemble].load_weights(listmodel_mc_fp[i_ensemble].format(i-1))
+                list_model_mc[i_ensemble].load_weights(list_model_mc_fp[i_ensemble].format(i-1))
         
         # step 1: reweight sim to look like data
         w = np.concatenate((wdata, ws[-1]))
@@ -388,9 +388,9 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
         if i > 0:
             for i_ensemble in range(ensemble):
                 list_model_det[i_ensemble].load_weights(list_model_det_fp[i_ensemble].format(i-1))
-                list_model_mc[i_ensemble].load_weights(listmodel_mc_fp[i_ensemble].format(i-1))
+                list_model_mc[i_ensemble].load_weights(list_model_mc_fp[i_ensemble].format(i-1))
                 list_model_det_2b[i_ensemble].load_weights(list_model_det_fp_2b[i_ensemble].format(i-1))
-                list_model_mc_1b[i_ensemble].load_weights(listmodel_mc_fp_1b[i_ensemble].format(i-1))
+                list_model_mc_1b[i_ensemble].load_weights(list_model_mc_fp_1b[i_ensemble].format(i-1))
 
         # step 1: reweight sim to look like data
         print("Step 1: reweight at det-level")
