@@ -11,7 +11,7 @@ import numpy as np
 MACHINES = {
     'multifold': {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
-        'results_path': '/work/jinw/omnifold/OmniFold/results_multifold_maxweight10_MCEPOS_unfoldCP1_1p3M_eff_acc'
+        'results_path': '/work/jinw/omnifold/OmniFold/results_multifold_maxweight10_MCEPOS_unfoldCP1_1p3M_eff_acc_fix'
     },
     'omnifold': {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
@@ -637,6 +637,13 @@ def train_manyfold_acceptance_efficiency(i):
     print("det_pass_reco len",len(det_pass_reco))
     print("det_pass_gen len",len(det_pass_gen))
 
+    X_det_acc_reweight = np.asarray([np.concatenate((mc_preproc[obkey], mc_preproc[obkey])) for obkey in recokeys]).T
+    Y_det_acc_reweight = ef.utils.to_categorical(np.concatenate((np.ones(len(mc_preproc['reco_ntrk'])), np.zeros(len(mc_preproc['reco_ntrk'])))))
+    det_pass_reco_acc_reweight=np.concatenate((mc_pass_reco,mc_pass_reco))
+    det_pass_gen_acc_reweight=np.concatenate((mc_pass_gen,mc_pass_gen))
+
+
+
     # gen setup
     X_gen = np.asarray([np.concatenate((mc_preproc[obkey], mc_preproc[obkey])) for obkey in genkeys]).T
     Y_gen = ef.utils.to_categorical(np.concatenate((np.ones(len(mc_preproc['gen_nch'])), np.zeros(len(mc_preproc['gen_nch'])))))
@@ -647,6 +654,7 @@ def train_manyfold_acceptance_efficiency(i):
     # standardize the inputs
     X_det[det_pass_reco] = (X_det[det_pass_reco] - np.mean(X_det[det_pass_reco], axis=0))/np.std(X_det[det_pass_reco], axis=0)
     X_gen[gen_pass_gen] = (X_gen[gen_pass_gen] - np.mean(X_gen[gen_pass_gen], axis=0))/np.std(X_gen[gen_pass_gen], axis=0)
+    X_det_acc_reweight[det_pass_reco_acc_reweight] = (X_det_acc_reweight[det_pass_reco_acc_reweight] - np.mean(X_det_acc_reweight[det_pass_reco_acc_reweight], axis=0))/np.std(X_det_acc_reweight[det_pass_reco_acc_reweight], axis=0)
 
     # specify the model and the training parameters
     model1_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step1')
@@ -686,7 +694,7 @@ def train_manyfold_acceptance_efficiency(i):
       preweightMC = np.load(PREWEIGHTS[args.machine],allow_pickle=True)
       winit = preweightMC[-1]
 
-    ws = omnifold.omnifold_acceptance_efficiency(X_gen, Y_gen, X_det, Y_det, wdata, winit, gen_pass_gen,gen_pass_reco, det_pass_gen,det_pass_reco,
+    ws = omnifold.omnifold_acceptance_efficiency(X_gen, Y_gen, X_det, Y_det,X_det_acc_reweight,Y_det_acc_reweight, wdata, winit, gen_pass_gen,gen_pass_reco, det_pass_gen,det_pass_reco,det_pass_gen_acc_reweight,det_pass_reco_acc_reweight,
                   (Model, det_args), (Model, mc_args),
                   fitargs, val=args.val_frac, it=args.unfolding_iterations, trw_ind=args.step2_ind,
                   weights_filename=os.path.join(args.results_path, 'weights', args.name))

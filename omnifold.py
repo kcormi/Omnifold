@@ -171,7 +171,7 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
 # fitargs: model fit arguments
 # it: number of iterations
 # trw_ind: which previous weights to use in second step, 0 means use initial, -2 means use previous
-def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, gen_passgen, gen_passreco, det_passgen, det_passreco, det_model, mc_model, fitargs,
+def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_i,Y_det_acc_i, wdata, winit, gen_passgen, gen_passreco, det_passgen, det_passreco,det_passgen_acc,det_passreco_acc, det_model, mc_model, fitargs,
              val=0.2, it=10, weights_filename=None, trw_ind=0, delete_global_arrays=False):
 
     # get arrays (possibly globally)
@@ -179,6 +179,8 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, wi
     Y_gen_arr = globals()[Y_gen_i] if isinstance(Y_gen_i, str) else Y_gen_i
     X_det_arr = globals()[X_det_i] if isinstance(X_det_i, str) else X_det_i
     Y_det_arr = globals()[Y_det_i] if isinstance(Y_det_i, str) else Y_det_i
+    X_det_acc_arr = globals()[X_det_acc_i] if isinstance(X_det_acc_i, str) else X_det_acc_i
+    Y_det_acc_arr = globals()[Y_det_acc_i] if isinstance(Y_det_acc_i, str) else Y_det_acc_i
 
     # initialize the truth weights to the prior
     ws = [winit]
@@ -196,7 +198,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, wi
     Y_det_train, Y_det_val = Y_det_arr[perm_det[:-nval_det]], Y_det_arr[perm_det[-nval_det:]]
 
     det_mask_reco_train, det_mask_reco_val = det_passreco[perm_det[:-nval_det]],det_passreco[perm_det[-nval_det:]]
-    det_mask_gen_train, et_mask_gen_val = det_passgen[perm_det[:-nval_det]],det_passgen[perm_det[-nval_det:]]
+    det_mask_gen_train, det_mask_gen_val = det_passgen[perm_det[:-nval_det]],det_passgen[perm_det[-nval_det:]]
     det_mask_reco_gen_train, det_mask_reco_gen_val = det_mask_reco_gen[perm_det[:-nval_det]],det_mask_reco_gen[perm_det[-nval_det:]]
     det_mask_reco_nogen_train, det_mask_reco_nogen_val = det_mask_reco_nogen[perm_det[:-nval_det]],det_mask_reco_nogen[perm_det[-nval_det:]]
     det_mask_gen_noreco_train, det_mask_gen_noreco_val = det_mask_gen_noreco[perm_det[:-nval_det]],det_mask_gen_noreco[perm_det[-nval_det:]]
@@ -255,6 +257,43 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, wi
             del globals()[X_gen_i]
         if isinstance(Y_gen_i, str):
             del globals()[Y_gen_i]
+
+    # get an initial permutation for gen and duplicate (offset) it
+    baseperm0 = np.random.permutation(len(winit))
+    baseperm1 = baseperm0 + len(winit)
+
+    # training examples are at beginning, val at end
+    # concatenate into single train and val perms (shuffle each)
+    trainperm = np.concatenate((baseperm0[:-nval], baseperm1[:-nval]))
+    valperm = np.concatenate((baseperm0[-nval:], baseperm1[-nval:]))
+    np.random.shuffle(trainperm)
+    np.random.shuffle(valperm)
+
+    # get final permutation for gen (ensured that the same events end up in val)
+    perm_det_acc = np.concatenate((trainperm, valperm))
+    invperm_det_acc = np.argsort(perm_det_acc)
+    nval_det_acc = int(val*len(perm_det_acc))
+    X_det_acc_train, X_det_acc_val = X_det_acc_arr[perm_det_acc[:-nval_det_acc]], X_det_acc_arr[perm_det_acc[-nval_det_acc:]]
+    Y_det_acc_train, Y_det_acc_val = Y_det_acc_arr[perm_det_acc[:-nval_det_acc]], Y_det_acc_arr[perm_det_acc[-nval_det_acc:]]
+
+    det_acc_mask_reco_gen = det_passreco_acc*det_passgen_acc
+    det_acc_mask_reco_nogen = det_passreco_acc*(det_passgen_acc==False)
+    det_acc_mask_gen_noreco = det_passgen_acc*(det_passreco_acc==False)
+
+    det_acc_mask_reco_train, det_acc_mask_reco_val = det_passreco_acc[perm_det_acc[:-nval_det_acc]],det_passreco_acc[perm_det_acc[-nval_det_acc:]]
+    det_acc_mask_gen_train, det_acc_mask_gen_val = det_passgen_acc[perm_det_acc[:-nval_det_acc]],det_passgen_acc[perm_det_acc[-nval_det_acc:]]
+    det_acc_mask_reco_gen_train, det_acc_mask_reco_gen_val = det_acc_mask_reco_gen[perm_det_acc[:-nval_det_acc]],det_acc_mask_reco_gen[perm_det_acc[-nval_det_acc:]]
+    det_acc_mask_reco_nogen_train, det_acc_mask_reco_nogen_val = det_acc_mask_reco_nogen[perm_det_acc[:-nval_det_acc]],det_acc_mask_reco_nogen[perm_det_acc[-nval_det_acc:]]
+    det_acc_mask_gen_noreco_train, det_acc_mask_gen_noreco_val = det_acc_mask_gen_noreco[perm_det_acc[:-nval_det_acc]],det_acc_mask_gen_noreco[perm_det_acc[-nval_det_acc:]]
+
+    # remove X_det, Y_det
+    if delete_global_arrays:
+        del X_det_acc_arr, Y_det_acc_arr
+        if isinstance(X_det_acc_i, str):
+            del globals()[X_det_acc_i]
+        if isinstance(Y_det_acc_i, str):
+            del globals()[Y_det_acc_i]
+
 
     # store model filepaths
     model_det_fp, model_mc_fp = det_model[1].get('filepath', None), mc_model[1].get('filepath', None)
@@ -330,17 +369,17 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, wi
         ws.append(rw_step2_tmp)
         print("weight step2 tmp",rw_step2_tmp)
         print("Step 2b: reweight the events not passing the gen-level selection at reco-level")
-        w = np.concatenate((wdata,rw_step2_tmp))
-        w_train, w_val = w[perm_det[:-nval_det]], w[perm_det[-nval_det:]]
-        rw_perm_det = np.ones(len(w))
-        rw_perm_det[det_mask_reco_nogen[perm_det]] = reweight_acc_eff(X_det_train[det_mask_reco_gen_train],Y_det_train[det_mask_reco_gen_train],
-                         w_train[det_mask_reco_gen_train],model_det,fitargs,
-                         val_data=(X_det_val[det_mask_reco_gen_val],Y_det_val[det_mask_reco_gen_val],w_val[det_mask_reco_gen_val]),
-                         apply_data=(np.concatenate([X_det_train[det_mask_reco_nogen_train],X_det_val[det_mask_reco_nogen_val]],axis=0),
-                                     np.concatenate([w_train[det_mask_reco_nogen_train],w_val[det_mask_reco_nogen_val]])))
-        rw = rw_perm_det[invperm_det]
-        print("weight step 2b",rw[len(wdata):])
-        ws.append(rw[len(wdata):]*rw_step2_tmp)
+        w = np.concatenate((rw_step2_tmp,ws[trw_ind]))
+        w_train, w_val = w[perm_det_acc[:-nval_det_acc]], w[perm_det_acc[-nval_det_acc:]]
+        rw_perm_det_acc = np.ones(len(w))
+        rw_perm_det_acc[det_acc_mask_reco_nogen[perm_det_acc]] = reweight_acc_eff(X_det_acc_train[det_acc_mask_reco_gen_train],Y_det_acc_train[det_acc_mask_reco_gen_train],
+                         w_train[det_acc_mask_reco_gen_train],model_det,fitargs,
+                         val_data=(X_det_acc_val[det_acc_mask_reco_gen_val],Y_det_acc_val[det_acc_mask_reco_gen_val],w_val[det_acc_mask_reco_gen_val]),
+                         apply_data=(np.concatenate([X_det_acc_train[det_acc_mask_reco_nogen_train],X_det_acc_val[det_acc_mask_reco_nogen_val]],axis=0),
+                                     np.concatenate([w_train[det_acc_mask_reco_nogen_train],w_val[det_acc_mask_reco_nogen_val]])))
+        rw = rw_perm_det_acc[invperm_det_acc]
+        print("weight step 2b",rw[len(ws[-1]):])
+        ws.append(rw[len(ws[-1]):]*rw_step2_tmp)
         print("weight now:",ws[-1])
         #ws.append(rw[len(ws[-1]):]*np.sum(ws[trw_ind])/np.sum(rw[len(ws[-1]):]))
         # save the weights if specified
