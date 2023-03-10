@@ -11,7 +11,7 @@ import numpy as np
 MACHINES = {
     'multifold': {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
-        'results_path': '/work/jinw/omnifold/OmniFold/results_multifold_maxweight10_MCEPOS_unfoldCP1_1p3M_eff_acc_ensemble4'
+        'results_path': '/work/jinw/omnifold/OmniFold/results_multifold_maxweight10_MCEPOS_unfoldCP1_1p3M_genweight_ensemble4'
     },
     'omnifold': {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
@@ -263,6 +263,12 @@ def train_omnifold(i):
     X_gen = (np.concatenate((gen, gen)))
     Y_gen = ef.utils.to_categorical(np.concatenate((np.ones(len(gen)), np.zeros(len(gen)))))
     del gen
+
+    X_det[np.isnan(np.sum(X_det,axis=1))==False]=(X_det[np.isnan(np.sum(X_det,axis=1))==False] - np.mean(X_det[np.isnan(np.sum(X_det,axis=1))==False], axis=0))/np.std(X_det[np.isnan(np.sum(X_det,axis=1))==False], axis=0)
+    X_det[np.isnan(X_det)]=-1.0
+    X_gen[np.isnan(np.sum(X_gen,axis=1))==False]=(X_gen[np.isnan(np.sum(X_gen,axis=1))==False] - np.mean(X_gen[np.isnan(np.sum(X_gen,axis=1))==False], axis=0))/np.std(X_gen[np.isnan(np.sum(X_gen,axis=1))==False], axis=0)
+    X_gen[np.isnan(X_gen)]=-1.0
+
     # specify the model and the training parameters
     model1_fp = os.path.join(args.results_path, 'models',  args.name + '_Iter-{}-Step1')
     model2_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step2')
@@ -369,6 +375,9 @@ def train_omnifold_fitsys(i):
     Y = ef.utils.to_categorical(np.concatenate((np.ones(len(data)), np.zeros(len(sim)))))
     del data, sim, truth, gen
 
+    X[np.isnan(np.sum(X,axis=1))==False]=(X[np.isnan(np.sum(X,axis=1))==False] - np.mean(X[np.isnan(np.sum(X,axis=1))==False], axis=0))/np.std(X[np.isnan(np.sum(X,axis=1))==False], axis=0)
+    X[np.isnan(X)]=-1.0
+
     model_fp = os.path.join(args.results_path, 'models',  args.name + '_Iter-{}-Step1')
     Model = getattr(ef.archs, args.omnifold_arch)
     print("PFN size",args.Phi_sizes,args.F_sizes)
@@ -428,7 +437,8 @@ def train_omnifold_fitgen(i):
     X = np.concatenate((truth, gen), axis=0)
     Y = ef.utils.to_categorical(np.concatenate((np.ones(len(truth)), np.zeros(len(gen)))))
     del truth, gen
-
+    X[np.isnan(np.sum(X,axis=1))==False]=(X[np.isnan(np.sum(X,axis=1))==False] - np.mean(X[np.isnan(np.sum(X,axis=1))==False], axis=0))/np.std(X[np.isnan(np.sum(X,axis=1))==False], axis=0)
+    X[np.isnan(X)]=-1.0
     model_fp = os.path.join(args.results_path, 'models',  args.name + '_Iter-{}-Step1')
     Model = getattr(ef.archs, args.omnifold_arch)
     print("PFN size",args.Phi_sizes,args.F_sizes)
@@ -544,8 +554,10 @@ def train_manyfold(i):
     del mc_preproc, real_preproc
 
     # standardize the inputs
-    X_det = (X_det - np.mean(X_det, axis=0))/np.std(X_det, axis=0)
-    X_gen = (X_gen - np.mean(X_gen, axis=0))/np.std(X_gen, axis=0)
+    X_det[np.isnan(np.sum(X_det,axis=1))==False]=(X_det[np.isnan(np.sum(X_det,axis=1))==False] - np.mean(X_det[np.isnan(np.sum(X_det,axis=1))==False], axis=0))/np.std(X_det[np.isnan(np.sum(X_det,axis=1))==False], axis=0)
+    X_det[np.isnan(X_det)]=-1.0
+    X_gen[np.isnan(np.sum(X_gen,axis=1))==False]=(X_gen[np.isnan(np.sum(X_gen,axis=1))==False] - np.mean(X_gen[np.isnan(np.sum(X_gen,axis=1))==False], axis=0))/np.std(X_gen[np.isnan(np.sum(X_gen,axis=1))==False], axis=0)
+    X_gen[np.isnan(X_gen)]=-1.0
 
     # specify the model and the training parameters
     model1_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step1')
@@ -751,8 +763,8 @@ def train_manyfold_fitsys(i):
     del mc_preproc, real_preproc
 
     # standardize the inputs
-    X = (X - np.mean(X, axis=0))/np.std(X, axis=0)
-
+    X[np.isnan(np.sum(X,axis=1))==False]=(X[np.isnan(np.sum(X,axis=1))==False] - np.mean(X[np.isnan(np.sum(X,axis=1))==False], axis=0))/np.std(X[np.isnan(np.sum(X,axis=1))==False], axis=0)
+    X[np.isnan(X)]=-1.0
     # specify the model and the training parameters
     model_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step1')
     Model = ef.archs.DNN
@@ -810,8 +822,8 @@ def train_manyfold_fitgen(i):
     del mc_preproc, real_preproc
 
     # standardize the inputs
-    X = (X - np.mean(X, axis=0))/np.std(X, axis=0)
-
+    X[np.isnan(np.sum(X,axis=1))==False]=(X[np.isnan(np.sum(X,axis=1))==False] - np.mean(X[np.isnan(np.sum(X,axis=1))==False], axis=0))/np.std(X[np.isnan(np.sum(X,axis=1))==False], axis=0)
+    X[np.isnan(X)]=-1.0
     # specify the model and the training parameters
     model_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step1')
     Model = ef.archs.DNN

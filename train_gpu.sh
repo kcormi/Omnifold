@@ -124,7 +124,8 @@ echo CUDA_VISIBLE_DEVICES : $CUDA_VISIBLE_DEVICES
 #python mytrain.py -m omnifold -u omnifold -mc Pythia8EPOS -data Pythia8EPOS_trkdrop --input-dim 3 -e 50 -ui 20 --save-best-only --weight-clip-max 10.0 --dosysweight
 
 #Unfold using Pythia8EPOS as MC to unfold CP1
-python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 20 --weight-clip-max 10.0 --save-best-only --eff-acc --ensemble 4
+#python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 20 --weight-clip-max 10.0 --save-best-only --eff-acc --ensemble 4
+python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 20 --weight-clip-max 10.0 --save-best-only --ensemble 4 --dogenreweight
 #python mytrain.py -m omnifold -u omnifold -mc Pythia8EPOS -data Pythia8CP1 --input-dim 3 -e 50 -ui 50 --save-best-only --weight-clip-max 10.0 --dosysweight
 
 #python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 70 --weight-clip-max 100.0 --save-best-only -sF 100 100

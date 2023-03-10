@@ -499,7 +499,7 @@ def omnifold_sys(X_i, Y_i, wdata, winit, det_mc_model, fitargs,
     list_model_det_mc=[]
     for i_ensemble in range(ensemble):
         if model_det_mc_fp is not None:
-            list_model_det_mc_fp_i.append(list_model_det_mc_fp[i_ensemble].format(i))
+            list_model_det_mc_fp_i.append(list_model_det_mc_fp[i_ensemble].format(0))
             det_mc_model[1]['filepath'] = list_model_det_mc_fp_i[i_ensemble] + '_Epoch-{epoch}'
         list_model_det_mc.append(det_mc_model[0](**det_mc_model[1]))
     # define models
