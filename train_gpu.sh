@@ -20,7 +20,8 @@ export TMPDIR=/scratch/$USER/${SLURM_JOB_ID}
 echo CUDA_VISIBLE_DEVICES : $CUDA_VISIBLE_DEVICES
 
 # QUICK TESTING
-python mytrain.py -m unifold -u unifold -data Pythia8CP1_tuneES -mc Pythia8CP1_tuneES  -e 3 -ui 2 --save-best-only --weight-clip-max 100.0 --testing
+#python mytrain.py -m test  -u unifold -data Pythia8CP1_test -mc EPOS_test  -e 3 -ui 2 --save-best-only --weight-clip-max 100.0 --testing
+python mytrain.py -m test  -u manyfold -data Pythia8CP1_test -mc EPOS_test  -e 3 -ui 2 --save-best-only --weight-clip-max 100.0 --testing --eff-acc
 
 #python mytrain.py -m omnifold -u omnifold --input-dim 3 -e 50 -ui 6 -data Pythia8CP1
 #python mytrain.py -m omnifold -u omnifold -data Pythia8CP1 --input-dim 3 -e 50 -ui 6

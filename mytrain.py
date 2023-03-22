@@ -21,6 +21,10 @@ MACHINES = {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
         'results_path': '/work/kcormier/instantons/data'
     },
+    'test':{
+        'data_path' : '/work/kcormier/instantons/data/test',
+        'results_path': '/work/kcormier/instantons/data/test',
+    }
 }
 
 # default filenames
@@ -43,6 +47,8 @@ FILENAMES = {
     'Pythia8CP5_part2': 'flatTuple_MB_trk_noPU_new_2.npz',
     'Pythia8CP1_tuneES_part1': 'flatTuple_MB_trk_noPU_new_CP1_tuneES_1.npz',
     'Pythia8CP1_tuneES_part2': 'flatTuple_MB_trk_noPU_new_CP1_tuneES_2.npz',
+    'Pythia8CP1_test': 'flatTuple_MB_trk_noPu_new_CP1_test.npz',
+    'EPOS_test': 'flatTuple_MB_trk_noPu_new_EPOS_test.npz',
 }
 
 
@@ -520,6 +526,9 @@ def train_manyfold(i):
 
     recokeys = ['reco_ntrk','reco_spherocity','reco_thrust','reco_broaden','reco_transversespherocity','reco_transversethrust','reco_isotropy','reco_pt']
     genkeys = ['gen_nch','gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy','gen_pt']
+    if args.testing:
+        recokeys = recokeys[:min(3,len(recokeys)+1)]
+        genkeys = genkeys[:min(3,len(genkeys)+1)]
 
     #recokeys = ['reco_mass','reco_ntrk']
     #genkeys = ['gen_mass','gen_nch']
@@ -614,6 +623,9 @@ def train_manyfold_acceptance_efficiency(i):
 
     recokeys = ['reco_ntrk','reco_spherocity','reco_thrust','reco_broaden','reco_transversespherocity','reco_transversethrust','reco_isotropy','reco_pt']
     genkeys = ['gen_nch','gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy','gen_pt']
+    if args.testing:
+        recokeys = recokeys[:min(3,len(recokeys)+1)]
+        genkeys = genkeys[:min(3,len(genkeys)+1)]
 
     start = time.time()
     print('ManyFolding')
@@ -741,6 +753,9 @@ def train_manyfold_fitsys(i):
     genkeys = ['gen_nch','gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy','gen_pt']
     #recokeys = ['reco_ntrk']
     #genkeys = ['gen_nch']
+    if args.testing:
+        recokeys = recokeys[:min(3,len(recokeys)+1)]
+        genkeys = genkeys[:min(3,len(genkeys)+1)]
 
     start = time.time()
     print('ManyFolding')
@@ -800,6 +815,8 @@ def train_manyfold_fitgen(i):
 
     #recokeys = ['reco_ntrk','reco_spherocity','reco_thrust','reco_broaden','reco_transversespherocity','reco_transversethrust','reco_isotropy','reco_pt']
     genkeys = ['gen_nch','gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy','gen_pt']
+    if args.testing:
+        genkeys = genkeys[:min(3,len(genkeys)+1)]
 
     start = time.time()
     print('ManyFolding')
