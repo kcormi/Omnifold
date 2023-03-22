@@ -18,6 +18,10 @@ export TMPDIR=/scratch/$USER/${SLURM_JOB_ID}
 
 # Slurm reserves two GPU's (according to requirement above), those ones that are recorded in shell variable CUDA_VISIBLE_DEVICES
 echo CUDA_VISIBLE_DEVICES : $CUDA_VISIBLE_DEVICES
+
+# QUICK TESTING
+python mytrain.py -m unifold -u unifold -data Pythia8CP1_tuneES -mc Pythia8CP1_tuneES  -e 3 -ui 2 --save-best-only --weight-clip-max 100.0 --testing
+
 #python mytrain.py -m omnifold -u omnifold --input-dim 3 -e 50 -ui 6 -data Pythia8CP1
 #python mytrain.py -m omnifold -u omnifold -data Pythia8CP1 --input-dim 3 -e 50 -ui 6
 #python mytrain.py -m multifold -u manyfold -e 50 -ui 8 --save-best-only --weight-clip-max 100.0
@@ -25,7 +29,9 @@ echo CUDA_VISIBLE_DEVICES : $CUDA_VISIBLE_DEVICES
 # python mytrain.py -m omnifold -u omnifold --input-dim 3 -e 50 -ui 6 --save-best-only --weight-clip-max 100.0 --bootstrap 
 # python mytrain.py -m unifold -u unifold -e 50 -ui 8 --save-best-only --weight-clip-max 100.0
 #python mytrain.py -m unifold -u unifold  -e 20 -ui 6 --save-best-only --weight-clip-max 100.0 -data Pythia8CP1
+
 ##ASIMOV
+
 #python mytrain.py -m omnifold -u omnifold -data Pythia8CP5 --input-dim 3 -e 50 -ui 6 --weight-clip-max 100.0
 #python mytrain.py -m multifold -u manyfold -data Pythia8CP5 -e 50 -ui 6 --weight-clip-max 100.0
 #python mytrain.py -m unifold -u unifold -data Pythia8CP5  -e 50 -ui 6 --save-best-only --weight-clip-max 100.0
@@ -125,7 +131,7 @@ echo CUDA_VISIBLE_DEVICES : $CUDA_VISIBLE_DEVICES
 
 #Unfold using Pythia8EPOS as MC to unfold CP1
 #python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 20 --weight-clip-max 10.0 --save-best-only --eff-acc --ensemble 4
-python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 20 --weight-clip-max 10.0 --save-best-only --ensemble 4 --dogenreweight
+#python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 20 --weight-clip-max 10.0 --save-best-only --ensemble 4 --dogenreweight
 #python mytrain.py -m omnifold -u omnifold -mc Pythia8EPOS -data Pythia8CP1 --input-dim 3 -e 50 -ui 50 --save-best-only --weight-clip-max 10.0 --dosysweight
 
 #python mytrain.py -m multifold -u manyfold -mc Pythia8EPOS -data Pythia8CP1 -e 50 -ui 70 --weight-clip-max 100.0 --save-best-only -sF 100 100

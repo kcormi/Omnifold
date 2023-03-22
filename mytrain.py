@@ -11,15 +11,15 @@ import numpy as np
 MACHINES = {
     'multifold': {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
-        'results_path': '/work/jinw/omnifold/OmniFold/results_multifold_maxweight10_MCEPOS_unfoldCP1_1p3M_genweight_ensemble4'
+        'results_path': '/work/kcormier/instantons/data'
     },
     'omnifold': {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
-        'results_path': '/work/jinw/omnifold/OmniFold/results_omnifold_maxweight10_MCEPOS_unfoldCP1_1p3M_sysweight'
+        'results_path': '/work/kcormier/instans/data'
     },
     'unifold':{
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
-        'results_path': '/work/jinw/omnifold/OmniFold/results_unifold_maxweight_MCCP5_more'
+        'results_path': '/work/kcormier/instantons/data'
     },
 }
 
@@ -215,10 +215,13 @@ def construct_parser(args):
     parser.add_argument('--dataweight',default=None,choices=[None,'gen_CP5_to_EPOS_multifold'])
 
     parser.add_argument('--eff-acc',action='store_true')
+    parser.add_argument('--testing', action='store_true', help="Run a shortened version for testing only.")
 
     p_args = parser.parse_args(args=args)
     p_args.data_path = MACHINES[p_args.machine]['data_path']
     p_args.results_path = MACHINES[p_args.machine]['results_path']
+
+    
 
     return p_args
 
@@ -852,6 +855,10 @@ def train_unifold(i):
     keys = ['nch','spherocity','thrust','broaden','transversespherocity','transversethrust','isotropy','pt']
     recokeys = ['reco_ntrk','reco_spherocity','reco_thrust','reco_broaden','reco_transversespherocity','reco_transversethrust','reco_isotropy','reco_pt']
     genkeys = ['gen_nch','gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy','gen_pt']
+    if args.testing:
+        keys = ['nch']
+        recokeys = ['reco_ntrk']
+        genkeys = ['gen_nch']
     #keys = ['spherocity','thrust','broaden','transversespherocity','transversethrust','isotropy']
     #recokeys = ['reco_spherocity','reco_thrust','reco_broaden','reco_transversespherocity','reco_transversethrust','reco_isotropy']
     #genkeys = ['gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy']
@@ -891,7 +898,7 @@ def train_unifold(i):
         # gen setup
         X_gen = (np.concatenate((mc_preproc[genkey], mc_preproc[genkey])))
         Y_gen = ef.utils.to_categorical(np.concatenate((np.ones(len(mc_preproc[genkey])), np.zeros(len(mc_preproc[genkey])))))
-        
+
         # standardize the inputs
         X_det = (X_det - np.mean(X_det))/np.std(X_det)
         X_gen = (X_gen - np.mean(X_gen))/np.std(X_gen)
