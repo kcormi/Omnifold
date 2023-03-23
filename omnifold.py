@@ -56,6 +56,30 @@ def reweight(X, Y, w, model, filepath, fitargs, val_data=None, apply_data=None):
     w *= np.clip(preds_mean/(1 - preds_mean + 10**-50), fitargs.get('weight_clip_min', 0.), fitargs.get('weight_clip_max', np.inf))
     return w
 
+
+def get_permutation( winit, wdata, val, step2=False):
+    if step2:
+        len_ = len(winit)
+        nval = int(val*len_)
+        baseperm0 = np.random.permutation(len_)
+        baseperm1 = baseperm0 + len_
+        
+        # training examples are at beginning, val at end
+        # concatenate into single train and val perms (shuffle each)
+        trainperm = np.concatenate((baseperm0[:-nval], baseperm1[:-nval]))
+        valperm = np.concatenate((baseperm0[-nval:], baseperm1[-nval:]))
+        np.random.shuffle(trainperm)
+        perm = np.concatenate([trainperm, valperm])
+    else:
+        len_ = len(winit) + len(wdata)
+        nval = int(val*len_)
+        perm = np.random.permutation( len_ )
+
+    invperm = np.argsort(perm)
+    return perm, invperm, nval
+
+
+
 # OmniFold
 # X_gen/Y_gen: particle level features/labels
 # X_det/Y_det: detector level features/labels, note these should be ordered as (data, sim)
@@ -77,11 +101,12 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
     
     # initialize the truth weights to the prior
     ws = [winit]
-    
+
     # get permutation for det
-    perm_det = np.random.permutation(len(winit) + len(wdata))
-    invperm_det = np.argsort(perm_det)
-    nval_det = int(val*len(perm_det))
+    perm_det, invperm_det, nval_det = get_permutation( winit, wdata, val )
+    #perm_det = np.random.permutation(len(winit) + len(wdata))
+    #invperm_det = np.argsort(perm_det)
+    #nval_det = int(val*len(perm_det))
     X_det_train, X_det_val = X_det_arr[perm_det[:-nval_det]], X_det_arr[perm_det[-nval_det:]]
     Y_det_train, Y_det_val = Y_det_arr[perm_det[:-nval_det]], Y_det_arr[perm_det[-nval_det:]]
 
@@ -94,22 +119,23 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
             del globals()[Y_det_i]
     
     if do_step2:
+        perm_gen, invperm_gen, nval_gen = get_permutation( winit, wdata, val, step2=True )
         # get an initial permutation for gen and duplicate (offset) it
-        nval = int(val*len(winit))
-        baseperm0 = np.random.permutation(len(winit))
-        baseperm1 = baseperm0 + len(winit)
-        
-        # training examples are at beginning, val at end
-        # concatenate into single train and val perms (shuffle each)
-        trainperm = np.concatenate((baseperm0[:-nval], baseperm1[:-nval]))
-        valperm = np.concatenate((baseperm0[-nval:], baseperm1[-nval:]))
-        np.random.shuffle(trainperm)
-        np.random.shuffle(valperm)
-        
-        # get final permutation for gen (ensured that the same events end up in val)
-        perm_gen = np.concatenate((trainperm, valperm))
-        invperm_gen = np.argsort(perm_gen)
-        nval_gen = int(val*len(perm_gen))
+        #nval = int(val*len(winit))
+        #baseperm0 = np.random.permutation(len(winit))
+        #baseperm1 = baseperm0 + len(winit)
+        #
+        ## training examples are at beginning, val at end
+        ## concatenate into single train and val perms (shuffle each)
+        #trainperm = np.concatenate((baseperm0[:-nval], baseperm1[:-nval]))
+        #valperm = np.concatenate((baseperm0[-nval:], baseperm1[-nval:]))
+        #np.random.shuffle(trainperm)
+        #np.random.shuffle(valperm)
+        #
+        ## get final permutation for gen (ensured that the same events end up in val)
+        #perm_gen = np.concatenate((trainperm, valperm))
+        #invperm_gen = np.argsort(perm_gen)
+        #nval_gen = int(val*len(perm_gen))
         X_gen_train, X_gen_val = X_gen_arr[perm_gen[:-nval_gen]], X_gen_arr[perm_gen[-nval_gen:]]
         Y_gen_train, Y_gen_val = Y_gen_arr[perm_gen[:-nval_gen]], Y_gen_arr[perm_gen[-nval_gen:]]
 
@@ -158,7 +184,8 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
         if i > 0:
             for i_ensemble in range(ensemble):
                 list_model_det[i_ensemble].load_weights(list_model_det_fp[i_ensemble].format(i-1))
-                list_model_mc[i_ensemble].load_weights(list_model_mc_fp[i_ensemble].format(i-1))
+                if do_step2:
+                    list_model_mc[i_ensemble].load_weights(list_model_mc_fp[i_ensemble].format(i-1))
         
         # step 1: reweight sim to look like data
         w = np.concatenate((wdata, ws[-1]))

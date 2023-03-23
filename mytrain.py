@@ -157,15 +157,24 @@ def main(arg_list):
             else:
               train_omnifold(i)
         elif args.unfolding == 'manyfold':
+            recokeys = ['reco_ntrk','reco_spherocity','reco_thrust','reco_broaden','reco_transversespherocity','reco_transversethrust','reco_isotropy','reco_pt']
+            genkeys = ['gen_nch','gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy','gen_pt']
             args.name = name.format(i)
             if args.dosysweight:
-              train_manyfold(i, full_reweight=True)
+              train_manyfold(i, step1_keys=genkeys+recokeys, step2_keys=None, iters=1)
             elif args.dogenreweight:
-              train_manyfold(i, gen_only=True)
+              train_manyfold(i, step1_keys=genkeys, step2_keys=None, iters=1)
             elif args.eff_acc:
-              train_manyfold_acceptance_efficiency(i)
-            else:  
-              train_manyfold(i)
+              train_manyfold(i,
+                            step1_keys=recokeys,
+                            step2_keys=genkeys,
+                            iters=args.unfolding_iterations,
+                            do_acc_eff=True,
+                            reco_cut = lambda x: (~np.isnan(x['reco_ntrk'])),
+                            gen_cut  = lambda x: (x['gen_nch']>2),
+                            )
+            else:
+              train_manyfold(i, step1_keys=recokeys, step2_keys=genkeys, iters=args.unfolding_iterations)
         elif args.unfolding == 'unifold':
             args.name = name + '_Rep-{}'.format(i)
             train_unifold(i)
@@ -596,71 +605,77 @@ def do_mc_bootstrap( winit, nsim, sysweights, seed ):
           winit *= np.random.poisson(1.0,nsim)
       return winit
 
-def train_manyfold(i, full_reweight=False, gen_only=False):
+def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=None, gen_cut=None ):
 
-    # which observables to include in manyfold
-    #recokeys = ['reco_mass','reco_ntrk']
-    #genkeys = ['gen_mass','gen_nch']
+    if reco_cut is None:
+        reco_cut = lambda x: np.ones(x.shape, dtype=bool)
+    if gen_cut is None:
+        gen_cut  = lambda x: np.ones(x.shape, dtype=bool)
 
-    #recokeys = ['reco_spherocity','reco_thrust','reco_broaden','reco_transversespherocity','reco_transversethrust','reco_isotropy']
-    #genkeys = ['gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy']
-
-    recokeys = ['reco_ntrk','reco_spherocity','reco_thrust','reco_broaden','reco_transversespherocity','reco_transversethrust','reco_isotropy','reco_pt']
-    genkeys = ['gen_nch','gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy','gen_pt']
     extra_keys = ['charged','tracks']
-    unf_iters = args.unfolding_iterations
+    iters = args.unfolding_iterations
     if args.testing:
-        recokeys = recokeys[:min(3,len(recokeys)+1)]
-        genkeys = genkeys[:min(3,len(genkeys)+1)]
-    do_step2 = True
-
-    step1_keys = genkeys
-    step2_keys = recokeys
-    if full_reweight:
-        step1_keys = genkeys + recokeys
-        step2_keys = []
-        do_step2 = False
-        unf_iters = 1
-    if gen_only:
-        step1_keys = genkeys
-        step2_keys = []
-        extra_keys = ['charged']
-        do_step2 = False
-        unf_iters = 1
+        step1_keys = step1_keys[:min(3,len(step1_keys)+1)]
+        step2_keys = step2_keys[:min(3,len(step2_keys)+1)] if step2_keys else None
 
     start = time.time()
     print('ManyFolding')
 
     max_size = 10000 if args.testing else None
-    all_keys = step1_keys + step2_keys + extra_keys
+    all_keys = step1_keys + extra_keys
+    if step2_keys:
+        all_keys += step2_keys
     mc_preproc  = load_data(FILENAMES[args.dataset_mc], all_keys, max_size)
     real_preproc = load_data( FILENAMES[args.dataset_data], all_keys, max_size )
 
     ## detector/sim setup
     X_det, Y_det = make_full_arrays( real_preproc, mc_preproc, keys=step1_keys)
     X_gen, Y_gen = None, None
-    if do_step2:
+    if step2_keys:
         X_gen, Y_gen = make_full_arrays( mc_preproc, mc_preproc, keys=step2_keys )
+
+    if do_acc_eff:
+        mc_pass_reco = reco_cut(mc_preproc)
+        mc_pass_gen  = gen_cut(mc_preproc)
+        k = list(real_preproc.keys())[0]
+        real_vals = np.ones(real_preproc[k].shape, dtype=bool)
+        print('shapes', real_vals.shape, mc_pass_reco.shape, mc_pass_gen.shape )
+        det_pass_reco=np.concatenate([real_vals,mc_pass_reco])
+        det_pass_gen=np.concatenate([real_vals,mc_pass_gen])
+
+        det_pass_reco_acc_reweight=np.concatenate([mc_pass_reco,mc_pass_reco])
+        det_pass_gen_acc_reweight=np.concatenate([mc_pass_gen,mc_pass_gen])
+
+        gen_pass_gen = np.concatenate((mc_pass_gen,mc_pass_gen))
+        gen_pass_reco = np.concatenate((mc_pass_reco,mc_pass_reco))
+
+        X_det_acc_reweight, Y_det_acc_reweight = make_full_arrays( mc_preproc, mc_preproc, step1_keys)
 
     del mc_preproc, real_preproc
 
     # specify the model and the training parameters
     model1_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step1')
-    if do_step2:
+    if step2_keys:
         model2_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step2')
     Model = ef.archs.DNN
     print("DNN size",args.F_sizes)
 
     det_args = make_model_args( model1_fp, step1_keys, args)
-    mc_args  = make_model_args( model2_fp, step2_keys, args) if do_step2 else None
+    mc_args  = make_model_args( model2_fp, step2_keys, args) if step2_keys else None
     fitargs  = make_fit_args( args )
+
+    if do_acc_eff:
+        model1b_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step1b')
+        model2b_fp = os.path.join(args.results_path, 'models', args.name + '_Iter-{}-Step2b')
+        mc_args_1b  = make_model_args( model1b_fp, step2_keys, args )
+        det_args_2b = make_model_args( model2b_fp, step1_keys, args )
 
     # apply the unifold technique to this one dimensional space
     ndata, nsim = np.count_nonzero(Y_det[:,1]), np.count_nonzero(Y_det[:,0])
     wdata = np.ones(ndata)
     if args.dataweight is not None:
-      dataweight = load_data(DATAWEIGHT[args.dataweight],-1,max_size)
-      wdata *= dataweight
+        dataweight = load_data(DATAWEIGHT[args.dataweight],-1,max_size)
+        wdata *= dataweight
 
     if args.bootstrap:
         wdata, wdata_path = do_bootstrap( len(wdata), args.bsseed, args.result_path, args.name )
@@ -670,11 +685,17 @@ def train_manyfold(i, full_reweight=False, gen_only=False):
         winit = do_mc_bootstrap(winit, nsim, SYSWEIGHTS[args.machine], args.MCbsseed )
 
     if args.preweight:
-      preweightMC = load_data(PREWEIGHTS[args.machine],-1,max_size)
-      winit = preweightMC
+        preweightMC = load_data(PREWEIGHTS[args.machine],-1,max_size)
+        winit = preweightMC
 
-    ws = omnifold.omnifold(X_gen, Y_gen, X_det, Y_det, wdata, winit, (Model, det_args), (Model, mc_args), 
-                  fitargs, val=args.val_frac, it=unf_iters, trw_ind=args.step2_ind,
+    if do_acc_eff:
+        ws = omnifold.omnifold_acceptance_efficiency(X_gen, Y_gen, X_det, Y_det,X_det_acc_reweight,Y_det_acc_reweight, wdata, winit, gen_pass_gen,gen_pass_reco, det_pass_gen,det_pass_reco,det_pass_gen_acc_reweight,det_pass_reco_acc_reweight,
+                  (Model, det_args), (Model, mc_args),(Model, mc_args_1b),(Model, det_args_2b),
+                  fitargs, val=args.val_frac, it=args.unfolding_iterations, trw_ind=args.step2_ind,
+                  weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
+    else:
+        ws = omnifold.omnifold(X_gen, Y_gen, X_det, Y_det, wdata, winit, (Model, det_args), (Model, mc_args),
+                  fitargs, val=args.val_frac, it=iters, trw_ind=args.step2_ind,
                   weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
 
     print('Finished ManyFold {} in {:.3f}s\n'.format(i, time.time() - start))
