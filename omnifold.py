@@ -67,11 +67,13 @@ def reweight(X, Y, w, model, filepath, fitargs, val_data=None, apply_data=None):
 def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_model, fitargs, 
              val=0.2, it=10, weights_filename=None, trw_ind=0, delete_global_arrays=False,ensemble=1):
 
+    do_step2 = not ( (X_gen_i is None) or (Y_gen_i is None) )
     # get arrays (possibly globally)
-    X_gen_arr = globals()[X_gen_i] if isinstance(X_gen_i, str) else X_gen_i
-    Y_gen_arr = globals()[Y_gen_i] if isinstance(Y_gen_i, str) else Y_gen_i
     X_det_arr = globals()[X_det_i] if isinstance(X_det_i, str) else X_det_i
     Y_det_arr = globals()[Y_det_i] if isinstance(Y_det_i, str) else Y_det_i
+    if do_step2:
+        X_gen_arr = globals()[X_gen_i] if isinstance(X_gen_i, str) else X_gen_i
+        Y_gen_arr = globals()[Y_gen_i] if isinstance(Y_gen_i, str) else Y_gen_i
     
     # initialize the truth weights to the prior
     ws = [winit]
@@ -91,24 +93,25 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
         if isinstance(Y_det_i, str):
             del globals()[Y_det_i]
     
-    # get an initial permutation for gen and duplicate (offset) it
-    nval = int(val*len(winit))
-    baseperm0 = np.random.permutation(len(winit))
-    baseperm1 = baseperm0 + len(winit)
-    
-    # training examples are at beginning, val at end
-    # concatenate into single train and val perms (shuffle each)
-    trainperm = np.concatenate((baseperm0[:-nval], baseperm1[:-nval]))
-    valperm = np.concatenate((baseperm0[-nval:], baseperm1[-nval:]))
-    np.random.shuffle(trainperm)
-    np.random.shuffle(valperm)
-    
-    # get final permutation for gen (ensured that the same events end up in val)
-    perm_gen = np.concatenate((trainperm, valperm))
-    invperm_gen = np.argsort(perm_gen)
-    nval_gen = int(val*len(perm_gen))
-    X_gen_train, X_gen_val = X_gen_arr[perm_gen[:-nval_gen]], X_gen_arr[perm_gen[-nval_gen:]]
-    Y_gen_train, Y_gen_val = Y_gen_arr[perm_gen[:-nval_gen]], Y_gen_arr[perm_gen[-nval_gen:]]
+    if do_step2:
+        # get an initial permutation for gen and duplicate (offset) it
+        nval = int(val*len(winit))
+        baseperm0 = np.random.permutation(len(winit))
+        baseperm1 = baseperm0 + len(winit)
+        
+        # training examples are at beginning, val at end
+        # concatenate into single train and val perms (shuffle each)
+        trainperm = np.concatenate((baseperm0[:-nval], baseperm1[:-nval]))
+        valperm = np.concatenate((baseperm0[-nval:], baseperm1[-nval:]))
+        np.random.shuffle(trainperm)
+        np.random.shuffle(valperm)
+        
+        # get final permutation for gen (ensured that the same events end up in val)
+        perm_gen = np.concatenate((trainperm, valperm))
+        invperm_gen = np.argsort(perm_gen)
+        nval_gen = int(val*len(perm_gen))
+        X_gen_train, X_gen_val = X_gen_arr[perm_gen[:-nval_gen]], X_gen_arr[perm_gen[-nval_gen:]]
+        Y_gen_train, Y_gen_val = Y_gen_arr[perm_gen[:-nval_gen]], Y_gen_arr[perm_gen[-nval_gen:]]
 
     # remove X_gen, Y_gen
     if delete_global_arrays:
@@ -119,14 +122,19 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
             del globals()[Y_gen_i]
 
     # store model filepaths
-    list_model_det_fp=[]
-    list_model_mc_fp=[]
-    model_det_fp, model_mc_fp = det_model[1].get('filepath', None), mc_model[1].get('filepath', None)
+    list_model_det_fp = []
+    list_model_mc_fp  = []
+    model_det_fp = det_model[1].get('filepath', None)
+    model_mc_fp = None
+    if do_step2:
+        model_mc_fp  = mc_model[1].get('filepath', None)
+
     for i_ensemble in range(ensemble):
       if model_det_fp is not None:
         list_model_det_fp.append(model_det_fp+"_ensemble"+str(i_ensemble))
       if model_mc_fp is not None:
         list_model_mc_fp.append(model_mc_fp+"_ensemble"+str(i_ensemble))
+
     # iterate the procedure
     for i in range(it):
         list_model_det_fp_i=[]
@@ -143,7 +151,8 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
                 list_model_mc_fp_i.append(list_model_mc_fp[i_ensemble].format(i))
                 mc_model[1]['filepath'] = list_model_mc_fp_i[i_ensemble] + '_Epoch-{epoch}'
             list_model_det.append(det_model[0](**det_model[1]))
-            list_model_mc.append(mc_model[0](**mc_model[1]))
+            if do_step2:
+                list_model_mc.append(mc_model[0](**mc_model[1]))
 
         # load weights if not model 0
         if i > 0:
@@ -160,14 +169,16 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
         #what if I normalize?
         #ws.append(rw[len(wdata):]*np.sum(wdata)/np.sum(rw[len(wdata):]))
 
-        # step 2: reweight the prior to the learned weighting
-        w = np.concatenate((ws[-1], ws[trw_ind]))
-        w_train, w_val = w[perm_gen[:-nval_gen]], w[perm_gen[-nval_gen:]]
-        rw = reweight(X_gen_train, Y_gen_train, w_train, list_model_mc, list_model_mc_fp_i,
-                      fitargs, val_data=(X_gen_val, Y_gen_val, w_val))[invperm_gen]
-        ws.append(rw[len(ws[-1]):])
-        #ws.append(rw[len(ws[-1]):]*np.sum(ws[trw_ind])/np.sum(rw[len(ws[-1]):]))
-        # save the weights if specified
+        if do_step2:
+            # step 2: reweight the prior to the learned weighting
+            w = np.concatenate((ws[-1], ws[trw_ind]))
+            w_train, w_val = w[perm_gen[:-nval_gen]], w[perm_gen[-nval_gen:]]
+            rw = reweight(X_gen_train, Y_gen_train, w_train, list_model_mc, list_model_mc_fp_i,
+                          fitargs, val_data=(X_gen_val, Y_gen_val, w_val))[invperm_gen]
+            ws.append(rw[len(ws[-1]):])
+            #ws.append(rw[len(ws[-1]):]*np.sum(ws[trw_ind])/np.sum(rw[len(ws[-1]):]))
+            # save the weights if specified
+
         if weights_filename is not None:
             np.save(weights_filename, ws)
         print("save weight ",weights_filename) 
@@ -251,13 +262,13 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
     gen_mask_reco_nogen_train, gen_mask_reco_nogen_val = gen_mask_reco_nogen[perm_gen[:-nval_gen]], gen_mask_reco_nogen[perm_gen[-nval_gen:]]
     gen_mask_gen_noreco_train, gen_mask_gen_noreco_val = gen_mask_gen_noreco[perm_gen[:-nval_gen]], gen_mask_gen_noreco[perm_gen[-nval_gen:]]
 
-    print("X_gen_train",X_gen_train, "len",len(X_gen_train))
-    print("gen_mask_gen_noreco_train",gen_mask_gen_noreco_train,len(gen_mask_gen_noreco_train))
-    print("X_gen_train[gen_mask_gen_noreco_train]",X_gen_train[gen_mask_gen_noreco_train])
-    print("X_gen_val",X_gen_val,len(X_gen_val))
-    print("gen_mask_gen_noreco_val",gen_mask_gen_noreco_val,len(gen_mask_gen_noreco_val))
-    print("X_gen_val[gen_mask_gen_noreco_val]",X_gen_val[gen_mask_gen_noreco_val])
-    print(np.concatenate([X_gen_train[gen_mask_gen_noreco_train],X_gen_val[gen_mask_gen_noreco_val]],axis=0))
+    #print("X_gen_train",X_gen_train, "len",len(X_gen_train))
+    #print("gen_mask_gen_noreco_train",gen_mask_gen_noreco_train,len(gen_mask_gen_noreco_train))
+    #print("X_gen_train[gen_mask_gen_noreco_train]",X_gen_train[gen_mask_gen_noreco_train])
+    #print("X_gen_val",X_gen_val,len(X_gen_val))
+    #print("gen_mask_gen_noreco_val",gen_mask_gen_noreco_val,len(gen_mask_gen_noreco_val))
+    #print("X_gen_val[gen_mask_gen_noreco_val]",X_gen_val[gen_mask_gen_noreco_val])
+    #print(np.concatenate([X_gen_train[gen_mask_gen_noreco_train],X_gen_val[gen_mask_gen_noreco_val]],axis=0))
 
 
     # remove X_gen, Y_gen
@@ -371,28 +382,28 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
         rw = rw_perm_det[invperm_det]
         rw_step1_tmp=rw[len(wdata):]
         ws.append(rw_step1_tmp)
-        print("weight step1 tmp",rw_step1_tmp)
+        #print("weight step1 tmp",rw_step1_tmp)
         print("Step 1b: reweight the not-reconstructed events at gen-level")
         w = np.concatenate((rw_step1_tmp, ws[trw_ind]))
         w_train, w_val = w[perm_gen[:-nval_gen]], w[perm_gen[-nval_gen:]]
         rw_perm_gen = np.ones(len(w))
         print("length rw_perm_gen",len(rw_perm_gen))
-        print("position of gen_mask_gen_noreco==True",np.argwhere(gen_mask_gen_noreco==True))
-        print("position of gen_mask_gen_noreco[perm_gen]==True",np.argwhere(gen_mask_gen_noreco[perm_gen]==True))
+        #print("position of gen_mask_gen_noreco==True",np.argwhere(gen_mask_gen_noreco==True))
+        #print("position of gen_mask_gen_noreco[perm_gen]==True",np.argwhere(gen_mask_gen_noreco[perm_gen]==True))
         rw_perm_gen[gen_mask_gen_noreco[perm_gen]] = reweight(X_gen_train[gen_mask_reco_gen_train], Y_gen_train[gen_mask_reco_gen_train],
                         w_train[gen_mask_reco_gen_train],list_model_mc_1b, list_model_mc_fp_1b_i,fitargs,
                         val_data=(X_gen_val[gen_mask_reco_gen_val], Y_gen_val[gen_mask_reco_gen_val], w_val[gen_mask_reco_gen_val]),
                         apply_data=(np.concatenate([X_gen_train[gen_mask_gen_noreco_train],X_gen_val[gen_mask_gen_noreco_val]],axis=0),
                         np.concatenate([w_train[gen_mask_gen_noreco_train],w_val[gen_mask_gen_noreco_val]])))
-        print("rw_perm_gen[gen_mask_gen_noreco[perm_gen]]",rw_perm_gen[gen_mask_gen_noreco[perm_gen]])
-        print("gen_mask_gen_noreco[perm_gen]",gen_mask_gen_noreco[perm_gen])
+        #print("rw_perm_gen[gen_mask_gen_noreco[perm_gen]]",rw_perm_gen[gen_mask_gen_noreco[perm_gen]])
+        #print("gen_mask_gen_noreco[perm_gen]",gen_mask_gen_noreco[perm_gen])
         rw = rw_perm_gen[invperm_gen]
-        print("position of rw_perm_gen[invperm_gen] not 1.",np.argwhere(rw_perm_gen[invperm_gen]!=1.))
-        print("rw_perm_gen",rw_perm_gen)
-        print("rw_perm_gen[invperm_gen]",rw_perm_gen[invperm_gen])
-        print("weight step 1b",rw[len(ws[-1]):])
+        #print("position of rw_perm_gen[invperm_gen] not 1.",np.argwhere(rw_perm_gen[invperm_gen]!=1.))
+        #print("rw_perm_gen",rw_perm_gen)
+        #print("rw_perm_gen[invperm_gen]",rw_perm_gen[invperm_gen])
+        #print("weight step 1b",rw[len(ws[-1]):])
         ws.append(rw[len(ws[-1]):]*rw_step1_tmp)
-        print("weight now:",ws[-1])
+        #print("weight now:",ws[-1])
         #what if I normalize?
         #ws.append(rw[len(wdata):]*np.sum(wdata)/np.sum(rw[len(wdata):]))
 
@@ -486,3 +497,25 @@ def omnifold_sys(X_i, Y_i, wdata, winit, det_mc_model, fitargs,
 
 if __name__ == '__main__':
     main(sys.argv[1:])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
