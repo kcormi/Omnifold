@@ -12,7 +12,7 @@ import numpy as np
 # Y: categorical labels
 # model: model with fit/predict
 # fitargs: model fit arguments
-def reweight(X, Y, w, model, filepath, fitargs, val_data=None, apply_data=None):
+def reweight(X, Y, w, model, fitargs, val_data=None, apply_data=None):
 
     # permute the data, fit the model, and get preditions
     #perm = np.random.permutation(len(X))
@@ -39,13 +39,14 @@ def reweight(X, Y, w, model, filepath, fitargs, val_data=None, apply_data=None):
         print("ensemble",i_ensemble)
         if isinstance(model,list):
           model_ensemble=model[i_ensemble]
-          if len(filepath)==ensemble:
-            filepath_ensemble=filepath[i_ensemble]
-          else:
-            filepath_ensemble=None
+          #if len(filepath)==ensemble:
+          #  filepath_ensemble=filepath[i_ensemble]
+          #else:
+          #  filepath_ensemble=None
         else:
           model_ensemble=model
-          filepath_ensemble=filepath
+          #filepath_ensemble=filepath
+        filepath_ensemble = model_ensemble.filepath
         model_ensemble.fit(X, Y, sample_weight=w, **fitargs_tf, **val_dict)
         model_ensemble.save_weights(filepath_ensemble)
         preds = model_ensemble.predict( apply_data[0], batch_size=fitargs.get('batch_size', 500))[:,1]
@@ -79,6 +80,17 @@ def get_permutation( winit, wdata, val, step2=False):
     return perm, invperm, nval
 
 
+def get_model_fpath( base_fp, ensemble_idx, iter_idx ):
+    return (base_fp +f'_ensemble{ensemble_idx}').format(iter_idx) + '_Epoch{epoch}'
+
+def get_model_ensemble_iter( base_model, ensemble_idx, iter_idx):
+    model_args = { k: v for k, v in base_model[1].items() }
+    base_model_fp = model_args['filepath']
+    new_model_fp = get_model_fpath( base_model_fp, ensemble_idx, iter_idx )
+    model_args.update( {'filepath' : new_model_fp } )
+    new_model = base_model[0](**model_args)
+    return new_model
+
 
 # OmniFold
 # X_gen/Y_gen: particle level features/labels
@@ -98,15 +110,12 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
     if do_step2:
         X_gen_arr = globals()[X_gen_i] if isinstance(X_gen_i, str) else X_gen_i
         Y_gen_arr = globals()[Y_gen_i] if isinstance(Y_gen_i, str) else Y_gen_i
-    
+
     # initialize the truth weights to the prior
     ws = [winit]
 
     # get permutation for det
     perm_det, invperm_det, nval_det = get_permutation( winit, wdata, val )
-    #perm_det = np.random.permutation(len(winit) + len(wdata))
-    #invperm_det = np.argsort(perm_det)
-    #nval_det = int(val*len(perm_det))
     X_det_train, X_det_val = X_det_arr[perm_det[:-nval_det]], X_det_arr[perm_det[-nval_det:]]
     Y_det_train, Y_det_val = Y_det_arr[perm_det[:-nval_det]], Y_det_arr[perm_det[-nval_det:]]
 
@@ -117,25 +126,9 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
             del globals()[X_det_i]
         if isinstance(Y_det_i, str):
             del globals()[Y_det_i]
-    
+
     if do_step2:
         perm_gen, invperm_gen, nval_gen = get_permutation( winit, wdata, val, step2=True )
-        # get an initial permutation for gen and duplicate (offset) it
-        #nval = int(val*len(winit))
-        #baseperm0 = np.random.permutation(len(winit))
-        #baseperm1 = baseperm0 + len(winit)
-        #
-        ## training examples are at beginning, val at end
-        ## concatenate into single train and val perms (shuffle each)
-        #trainperm = np.concatenate((baseperm0[:-nval], baseperm1[:-nval]))
-        #valperm = np.concatenate((baseperm0[-nval:], baseperm1[-nval:]))
-        #np.random.shuffle(trainperm)
-        #np.random.shuffle(valperm)
-        #
-        ## get final permutation for gen (ensured that the same events end up in val)
-        #perm_gen = np.concatenate((trainperm, valperm))
-        #invperm_gen = np.argsort(perm_gen)
-        #nval_gen = int(val*len(perm_gen))
         X_gen_train, X_gen_val = X_gen_arr[perm_gen[:-nval_gen]], X_gen_arr[perm_gen[-nval_gen:]]
         Y_gen_train, Y_gen_val = Y_gen_arr[perm_gen[:-nval_gen]], Y_gen_arr[perm_gen[-nval_gen:]]
 
@@ -147,50 +140,34 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
         if isinstance(Y_gen_i, str):
             del globals()[Y_gen_i]
 
-    # store model filepaths
-    list_model_det_fp = []
-    list_model_mc_fp  = []
-    model_det_fp = det_model[1].get('filepath', None)
-    model_mc_fp = None
-    if do_step2:
-        model_mc_fp  = mc_model[1].get('filepath', None)
-
-    for i_ensemble in range(ensemble):
-      if model_det_fp is not None:
-        list_model_det_fp.append(model_det_fp+"_ensemble"+str(i_ensemble))
-      if model_mc_fp is not None:
-        list_model_mc_fp.append(model_mc_fp+"_ensemble"+str(i_ensemble))
-
     # iterate the procedure
     for i in range(it):
-        list_model_det_fp_i=[]
-        list_model_mc_fp_i=[]
         list_model_det=[]
         list_model_mc=[]
         # det filepaths properly
         for i_ensemble in range(ensemble):
-            # det filepaths properly
-            if model_det_fp is not None:
-                list_model_det_fp_i.append(list_model_det_fp[i_ensemble].format(i))
-                det_model[1]['filepath'] = list_model_det_fp_i[i_ensemble] + '_Epoch-{epoch}'
-            if model_mc_fp is not None:
-                list_model_mc_fp_i.append(list_model_mc_fp[i_ensemble].format(i))
-                mc_model[1]['filepath'] = list_model_mc_fp_i[i_ensemble] + '_Epoch-{epoch}'
-            list_model_det.append(det_model[0](**det_model[1]))
+            this_det_model = get_model_ensemble_iter( det_model, i_ensemble, i )
+            list_model_det.append( this_det_model )
+
             if do_step2:
-                list_model_mc.append(mc_model[0](**mc_model[1]))
+                this_mc_model = get_model_ensemble_iter( mc_model, i_ensemble, i )
+                list_model_mc.append( this_mc_model )
 
         # load weights if not model 0
         if i > 0:
             for i_ensemble in range(ensemble):
-                list_model_det[i_ensemble].load_weights(list_model_det_fp[i_ensemble].format(i-1))
+                #list_model_det[i_ensemble].load_weights(list_model_det_fp[i_ensemble].format(i-1))
+                last_iter_det_model = get_model_fpath( det_model[1]['filepath'], i_ensemble, i-1 )
+                list_model_det[i_ensemble].load_weights( last_iter_det_model )
                 if do_step2:
-                    list_model_mc[i_ensemble].load_weights(list_model_mc_fp[i_ensemble].format(i-1))
-        
+                    #list_model_mc[i_ensemble].load_weights(list_model_mc_fp[i_ensemble].format(i-1))
+                    last_iter_mc_model = get_model_fpath( mc_model[1]['filepath'], i_ensemble, i-1 )
+                    list_model_mc[i_ensemble].load_weights( last_iter_mc_model )
+
         # step 1: reweight sim to look like data
         w = np.concatenate((wdata, ws[-1]))
         w_train, w_val = w[perm_det[:-nval_det]], w[perm_det[-nval_det:]]
-        rw = reweight(X_det_train, Y_det_train, w_train, list_model_det, list_model_det_fp_i,
+        rw = reweight(X_det_train, Y_det_train, w_train, list_model_det, 
                       fitargs, val_data=(X_det_val, Y_det_val, w_val))[invperm_det]
         ws.append(rw[len(wdata):])
         #what if I normalize?
@@ -200,7 +177,7 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
             # step 2: reweight the prior to the learned weighting
             w = np.concatenate((ws[-1], ws[trw_ind]))
             w_train, w_val = w[perm_gen[:-nval_gen]], w[perm_gen[-nval_gen:]]
-            rw = reweight(X_gen_train, Y_gen_train, w_train, list_model_mc, list_model_mc_fp_i,
+            rw = reweight(X_gen_train, Y_gen_train, w_train, list_model_mc, 
                           fitargs, val_data=(X_gen_val, Y_gen_val, w_val))[invperm_gen]
             ws.append(rw[len(ws[-1]):])
             #ws.append(rw[len(ws[-1]):]*np.sum(ws[trw_ind])/np.sum(rw[len(ws[-1]):]))
@@ -404,7 +381,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
 
         rw_perm_det = np.ones(len(w))
         rw_perm_det[det_passreco[perm_det]] = reweight(X_det_train[det_mask_reco_train], Y_det_train[det_mask_reco_train],
-                                              w_train[det_mask_reco_train], list_model_det, list_model_det_fp_i,
+                                              w_train[det_mask_reco_train], list_model_det, 
                                               fitargs, val_data=(X_det_val[det_mask_reco_val], Y_det_val[det_mask_reco_val], w_val[det_mask_reco_val]))
         rw = rw_perm_det[invperm_det]
         rw_step1_tmp=rw[len(wdata):]
@@ -418,7 +395,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
         #print("position of gen_mask_gen_noreco==True",np.argwhere(gen_mask_gen_noreco==True))
         #print("position of gen_mask_gen_noreco[perm_gen]==True",np.argwhere(gen_mask_gen_noreco[perm_gen]==True))
         rw_perm_gen[gen_mask_gen_noreco[perm_gen]] = reweight(X_gen_train[gen_mask_reco_gen_train], Y_gen_train[gen_mask_reco_gen_train],
-                        w_train[gen_mask_reco_gen_train],list_model_mc_1b, list_model_mc_fp_1b_i,fitargs,
+                        w_train[gen_mask_reco_gen_train],list_model_mc_1b, fitargs,
                         val_data=(X_gen_val[gen_mask_reco_gen_val], Y_gen_val[gen_mask_reco_gen_val], w_val[gen_mask_reco_gen_val]),
                         apply_data=(np.concatenate([X_gen_train[gen_mask_gen_noreco_train],X_gen_val[gen_mask_gen_noreco_val]],axis=0),
                         np.concatenate([w_train[gen_mask_gen_noreco_train],w_val[gen_mask_gen_noreco_val]])))
@@ -441,7 +418,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
         rw_perm_gen = np.ones(len(w))
      
         rw_perm_gen[gen_passgen[perm_gen]] = reweight(X_gen_train[gen_mask_gen_train], Y_gen_train[gen_mask_gen_train], w_train[gen_mask_gen_train],
-                      list_model_mc, list_model_mc_fp_i,
+                      list_model_mc, 
                       fitargs, val_data=(X_gen_val[gen_mask_gen_val], Y_gen_val[gen_mask_gen_val], w_val[gen_mask_gen_val]))
         rw =  rw_perm_gen[invperm_gen]
         rw_step2_tmp = rw[len(ws[-1]):]
@@ -452,7 +429,7 @@ def omnifold_acceptance_efficiency(X_gen_i, Y_gen_i, X_det_i, Y_det_i,X_det_acc_
         w_train, w_val = w[perm_det_acc[:-nval_det_acc]], w[perm_det_acc[-nval_det_acc:]]
         rw_perm_det_acc = np.ones(len(w))
         rw_perm_det_acc[det_acc_mask_reco_nogen[perm_det_acc]] = reweight(X_det_acc_train[det_acc_mask_reco_gen_train],Y_det_acc_train[det_acc_mask_reco_gen_train],
-                         w_train[det_acc_mask_reco_gen_train],list_model_det_2b,list_model_det_fp_2b_i,fitargs,
+                         w_train[det_acc_mask_reco_gen_train],list_model_det_2b,fitargs,
                          val_data=(X_det_acc_val[det_acc_mask_reco_gen_val],Y_det_acc_val[det_acc_mask_reco_gen_val],w_val[det_acc_mask_reco_gen_val]),
                          apply_data=(np.concatenate([X_det_acc_train[det_acc_mask_reco_nogen_train],X_det_acc_val[det_acc_mask_reco_nogen_val]],axis=0),
                                      np.concatenate([w_train[det_acc_mask_reco_nogen_train],w_val[det_acc_mask_reco_nogen_val]])))
@@ -510,7 +487,7 @@ def omnifold_sys(X_i, Y_i, wdata, winit, det_mc_model, fitargs,
     # define models
     w = np.concatenate((wdata, ws[-1]))
     w_train, w_val = w[perm[:-nval]], w[perm[-nval:]]
-    rw = reweight(X_train, Y_train, w_train, list_model_det_mc, list_model_det_mc_fp_i,
+    rw = reweight(X_train, Y_train, w_train, list_model_det_mc,
                   fitargs, val_data=(X_val, Y_val, w_val))[invperm]
     ws.append(rw[len(wdata):])
     if weights_filename is not None:
