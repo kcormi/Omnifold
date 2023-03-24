@@ -12,19 +12,32 @@ import numpy as np
 # Y: categorical labels
 # model: model with fit/predict
 # fitargs: model fit arguments
-def reweight(X, Y, w, model, fitargs, val_data=None, apply_data=None):
+def reweight(X, Y, w, model, fitargs, val_data=None, apply_data=None, train_idcs=None, val_idcs=None, apply_idcs=None):
 
-    # permute the data, fit the model, and get preditions
-    #perm = np.random.permutation(len(X))
-    #model.fit(X[perm], Y[perm], sample_weight=w[perm], **fitargs)
-    if apply_data is None:
-        if val_data is not None:
-            apply_features = np.concatenate([X, val_data[0]])
-            apply_weights = np.concatenate([w, val_data[2]])
+    from_idcs = True
+    if (val_data is not None) or (apply_data is not None):
+        assert (train_idcs is None) and (val_idcs is None) and (apply_idcs is None)
+        from_idcs = False
+        
+    if from_idcs:
+        if val_idcs is not None:
+            val_data = (X[val_idcs], Y[val_idcs], w[val_idcs] )
+        if apply_idcs is not None:
+            apply_data = (X[apply_idcs], w[apply_idcs])
         else:
-            apply_features = X
-            apply_weights = w
-        apply_data = [ apply_features, apply_weights ]
+            apply_data = (X, w )
+        if train_idcs is not None:
+            X, Y, w = X[train_idcs], Y[train_idcs], w[train_idcs]
+
+    else:
+        if apply_data is None:
+            if val_data is not None:
+                apply_features = np.concatenate([X, val_data[0]])
+                apply_weights = np.concatenate([w, val_data[2]])
+            else:
+                apply_features = X
+                apply_weights = w
+            apply_data = [ apply_features, apply_weights ]
 
     val_dict = {'validation_data': val_data} if val_data is not None else {}
     fitargs_tf={}
@@ -105,23 +118,23 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
 
     do_step2 = not ( (X_gen_i is None) or (Y_gen_i is None) )
     # get arrays (possibly globally)
-    X_det_arr = globals()[X_det_i] if isinstance(X_det_i, str) else X_det_i
-    Y_det_arr = globals()[Y_det_i] if isinstance(Y_det_i, str) else Y_det_i
+    X_det = globals()[X_det_i] if isinstance(X_det_i, str) else X_det_i[:]
+    Y_det = globals()[Y_det_i] if isinstance(Y_det_i, str) else Y_det_i[:]
     if do_step2:
-        X_gen_arr = globals()[X_gen_i] if isinstance(X_gen_i, str) else X_gen_i
-        Y_gen_arr = globals()[Y_gen_i] if isinstance(Y_gen_i, str) else Y_gen_i
+        X_gen = globals()[X_gen_i] if isinstance(X_gen_i, str) else X_gen_i[:]
+        Y_gen = globals()[Y_gen_i] if isinstance(Y_gen_i, str) else Y_gen_i[:]
 
     # initialize the truth weights to the prior
     ws = [winit]
 
     # get permutation for det
     perm_det, invperm_det, nval_det = get_permutation( winit, wdata, val )
-    X_det_train, X_det_val = X_det_arr[perm_det[:-nval_det]], X_det_arr[perm_det[-nval_det:]]
-    Y_det_train, Y_det_val = Y_det_arr[perm_det[:-nval_det]], Y_det_arr[perm_det[-nval_det:]]
+    det_idcs_train, det_idcs_val = perm_det[:-nval_det], perm_det[-nval_det:]
+    #X_det_train, X_det_val = X_det_arr[det_idcs_train], X_det_arr[det_idcs_val]
+    #Y_det_train, Y_det_val = Y_det_arr[det_idcs_train], Y_det_arr[det_idcs_val]
 
     # remove X_det, Y_det
     if delete_global_arrays:
-        del X_det_arr, Y_det_arr
         if isinstance(X_det_i, str):
             del globals()[X_det_i]
         if isinstance(Y_det_i, str):
@@ -129,12 +142,12 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
 
     if do_step2:
         perm_gen, invperm_gen, nval_gen = get_permutation( winit, wdata, val, step2=True )
-        X_gen_train, X_gen_val = X_gen_arr[perm_gen[:-nval_gen]], X_gen_arr[perm_gen[-nval_gen:]]
-        Y_gen_train, Y_gen_val = Y_gen_arr[perm_gen[:-nval_gen]], Y_gen_arr[perm_gen[-nval_gen:]]
+        gen_idcs_train, gen_idcs_val = perm_gen[:-nval_gen], perm_gen[-nval_gen:]
+        #X_gen_train, X_gen_val = X_gen_arr[gen_idcs_train], X_gen_arr[gen_idcs_val]
+        #Y_gen_train, Y_gen_val = Y_gen_arr[gen_idcs_train], Y_gen_arr[gen_idcs_val]
 
     # remove X_gen, Y_gen
     if delete_global_arrays:
-        del X_gen_arr, Y_gen_arr
         if isinstance(X_gen_i, str):
             del globals()[X_gen_i]
         if isinstance(Y_gen_i, str):
@@ -166,9 +179,9 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
 
         # step 1: reweight sim to look like data
         w = np.concatenate((wdata, ws[-1]))
-        w_train, w_val = w[perm_det[:-nval_det]], w[perm_det[-nval_det:]]
-        rw = reweight(X_det_train, Y_det_train, w_train, list_model_det, 
-                      fitargs, val_data=(X_det_val, Y_det_val, w_val))[invperm_det]
+        #w_train, w_val = w[det_idcs_train], w[det_idcs_val]
+        rw = reweight(X_det, Y_det, w, list_model_det, 
+                      fitargs, train_idcs=det_idcs_train, val_idcs=det_idcs_val )[invperm_det]
         ws.append(rw[len(wdata):])
         #what if I normalize?
         #ws.append(rw[len(wdata):]*np.sum(wdata)/np.sum(rw[len(wdata):]))
@@ -176,9 +189,9 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
         if do_step2:
             # step 2: reweight the prior to the learned weighting
             w = np.concatenate((ws[-1], ws[trw_ind]))
-            w_train, w_val = w[perm_gen[:-nval_gen]], w[perm_gen[-nval_gen:]]
-            rw = reweight(X_gen_train, Y_gen_train, w_train, list_model_mc, 
-                          fitargs, val_data=(X_gen_val, Y_gen_val, w_val))[invperm_gen]
+            #w_train, w_val = w[perm_gen[:-nval_gen]], w[perm_gen[-nval_gen:]]
+            rw = reweight(X_gen, Y_gen, w, list_model_mc, 
+                          fitargs, train_idcs=gen_idcs_train, val_idcs=gen_idcs_val)[invperm_gen]
             ws.append(rw[len(ws[-1]):])
             #ws.append(rw[len(ws[-1]):]*np.sum(ws[trw_ind])/np.sum(rw[len(ws[-1]):]))
             # save the weights if specified

@@ -236,7 +236,6 @@ def construct_parser(args):
     p_args.data_path = MACHINES[p_args.machine]['data_path']
     p_args.results_path = MACHINES[p_args.machine]['results_path']
 
-    
 
     return p_args
 
@@ -626,7 +625,7 @@ def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=
     if step2_keys:
         all_keys += step2_keys
     mc_preproc  = load_data(FILENAMES[args.dataset_mc], all_keys, max_size)
-    real_preproc = load_data( FILENAMES[args.dataset_data], all_keys, max_size )
+    real_preproc = load_data(FILENAMES[args.dataset_data], all_keys, max_size )
 
     ## detector/sim setup
     X_det, Y_det = make_full_arrays( real_preproc, mc_preproc, keys=step1_keys)
@@ -640,14 +639,14 @@ def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=
         k = list(real_preproc.keys())[0]
         real_vals = np.ones(real_preproc[k].shape, dtype=bool)
         print('shapes', real_vals.shape, mc_pass_reco.shape, mc_pass_gen.shape )
-        det_pass_reco=np.concatenate([real_vals,mc_pass_reco])
-        det_pass_gen=np.concatenate([real_vals,mc_pass_gen])
+        det_pass_reco = np.concatenate([real_vals, mc_pass_reco])
+        det_pass_gen = np.concatenate([real_vals, mc_pass_gen])
 
-        det_pass_reco_acc_reweight=np.concatenate([mc_pass_reco,mc_pass_reco])
-        det_pass_gen_acc_reweight=np.concatenate([mc_pass_gen,mc_pass_gen])
+        det_pass_reco_acc_reweight = np.concatenate([mc_pass_reco, mc_pass_reco])
+        det_pass_gen_acc_reweight = np.concatenate([mc_pass_gen, mc_pass_gen])
 
-        gen_pass_gen = np.concatenate((mc_pass_gen,mc_pass_gen))
-        gen_pass_reco = np.concatenate((mc_pass_reco,mc_pass_reco))
+        gen_pass_gen = np.concatenate((mc_pass_gen, mc_pass_gen))
+        gen_pass_reco = np.concatenate((mc_pass_reco, mc_pass_reco))
 
         X_det_acc_reweight, Y_det_acc_reweight = make_full_arrays( mc_preproc, mc_preproc, step1_keys)
 
