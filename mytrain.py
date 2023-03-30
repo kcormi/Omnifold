@@ -555,7 +555,7 @@ def load_data( files, keys, max_size=None ):
 def standardize_array( arr ):
     mask = ~np.isnan(np.sum(arr,axis=1))
     arr[mask] = arr[mask] - np.mean(arr[mask], axis=0)/np.std(arr[mask], axis=0)
-    arr[np.isnan(arr)] = -1
+    #arr[np.isnan(arr)] = -1
     return arr
 
 
@@ -688,10 +688,15 @@ def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=
         winit = preweightMC
 
     if do_acc_eff:
-        ws = omnifold.omnifold_acceptance_efficiency(X_gen, Y_gen, X_det, Y_det,X_det_acc_reweight,Y_det_acc_reweight, wdata, winit, gen_pass_gen,gen_pass_reco, det_pass_gen,det_pass_reco,det_pass_gen_acc_reweight,det_pass_reco_acc_reweight,
-                  (Model, det_args), (Model, mc_args),(Model, mc_args_1b),(Model, det_args_2b),
-                  fitargs, val=args.val_frac, it=args.unfolding_iterations, trw_ind=args.step2_ind,
-                  weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
+        #ws = omnifold.omnifold_acceptance_efficiency(X_gen, Y_gen, X_det, Y_det,X_det_acc_reweight,Y_det_acc_reweight, wdata, winit, gen_pass_gen,gen_pass_reco, det_pass_gen,det_pass_reco,det_pass_gen_acc_reweight,det_pass_reco_acc_reweight,
+        #          (Model, det_args), (Model, mc_args),(Model, mc_args_1b),(Model, det_args_2b),
+        #          fitargs, val=args.val_frac, it=args.unfolding_iterations, trw_ind=args.step2_ind,
+        #          weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
+        ws = omnifold.omnifold(X_gen, Y_gen, X_det, Y_det, wdata, winit, (Model, det_args), (Model, mc_args),
+                               fitargs, det_model_oos=(Model, mc_args_1b), gen_model_oos=(Model, det_args_2b),
+                                val=args.val_frac, it=iters, trw_ind=args.step2_ind,
+                                weights_filename=os.path.join( args.results_path, 'weights', args.name), ensemble=args.ensemble,
+                                det_pass_reco=det_pass_reco, det_pass_gen=det_pass_gen, gen_pass_reco=gen_pass_reco, gen_pass_gen=gen_pass_gen )
     else:
         ws = omnifold.omnifold(X_gen, Y_gen, X_det, Y_det, wdata, winit, (Model, det_args), (Model, mc_args),
                   fitargs, val=args.val_frac, it=iters, trw_ind=args.step2_ind,

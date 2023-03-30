@@ -7,11 +7,38 @@ import time
 import energyflow as ef
 import numpy as np
 
+from dataclasses import dataclass
+
 # DCTR, reweights positive distribution to negative distribution
 # X: features
 # Y: categorical labels
 # model: model with fit/predict
 # fitargs: model fit arguments
+
+@dataclass
+class Sample:
+    values: np.ndarray
+    weights: np.ndarray
+    to_keep: np.ndarray
+    out_of_sample: np.ndarray
+
+@dataclass
+class DataSet:
+    values:  np.ndarray
+    labels:  np.ndarray
+    weights: np.ndarray
+    to_keep: np.ndarray
+    out_of_sample: np.ndarray
+    _paired_shuffle: bool = False
+    
+
+    def shuffle(self, arr ):
+        pass
+
+    def unshuffle(self, arr ):
+        pass
+
+
 def reweight(X, Y, w, model, fitargs, val_data=None, apply_data=None, train_idcs=None, val_idcs=None, apply_idcs=None):
 
     from_idcs = True
@@ -25,9 +52,13 @@ def reweight(X, Y, w, model, fitargs, val_data=None, apply_data=None, train_idcs
         if apply_idcs is not None:
             apply_data = (X[apply_idcs], w[apply_idcs])
         else:
-            apply_data = (X, w )
+            apply_data = (X[:], w[:] )
+            print(apply_data[0].shape, apply_data[1].shape, 'hmmmm')
         if train_idcs is not None:
-            X, Y, w = X[train_idcs], Y[train_idcs], w[train_idcs]
+            in_sample_idcs = train_idcs
+            if val_idcs is not None:
+                in_sample_idcs = np.concatenate( [train_idcs, val_idcs] )
+            X, Y, w = X[in_sample_idcs], Y[in_sample_idcs], w[in_sample_idcs]
 
     else:
         if apply_data is None:
@@ -65,7 +96,7 @@ def reweight(X, Y, w, model, fitargs, val_data=None, apply_data=None, train_idcs
         preds = model_ensemble.predict( apply_data[0], batch_size=fitargs.get('batch_size', 500))[:,1]
         preds_ensemble.append( preds )
 
-    preds_mean=np.mean(np.array(preds_ensemble),axis=0)
+    preds_mean = np.mean(np.array(preds_ensemble),axis=0)
     w = apply_data[1]
     w *= np.clip(preds_mean/(1 - preds_mean + 10**-50), fitargs.get('weight_clip_min', 0.), fitargs.get('weight_clip_max', np.inf))
     return w
@@ -104,6 +135,40 @@ def get_model_ensemble_iter( base_model, ensemble_idx, iter_idx):
     new_model = base_model[0](**model_args)
     return new_model
 
+def get_group_indices( perm, nval, basic_cut, separate_cut ):
+    ''' return the indices for the train, validation and out-of-sample groups 
+    based on the permutation, number of validation samples and mask of events passing cuts.'''
+
+    train_grp = perm[:-nval]
+    val_grp = perm[-nval:]
+
+    if basic_cut is not None:
+        basic_cut = np.array( basic_cut, dtype=bool)
+
+        train_pass = basic_cut[train_grp]
+        train_idcs = train_grp[train_pass]
+
+        val_pass = basic_cut[val_grp]
+        val_idcs = val_grp[val_pass]
+
+    else:
+        nasic_cut = np.ones( len(perm), dtype=bool)
+        train_idcs = train_grp
+        val_idcs = val_grp
+        basic_cut = True #everything passes
+
+    if separate_cut is not None:
+        separate_cut = np.array(separate_cut, dtype=bool)
+    else:
+        separate_cut = np.ones( len(perm), dtype=bool)
+    out_of_sample_idcs = perm[basic_cut & ~separate_cut]
+    
+    set_oos = set(out_of_sample_idcs)
+    train_idcs = list( set(train_idcs).difference(set_oos) )
+    val_idcs = list( set(val_idcs).difference(set_oos) )
+
+    return train_idcs, val_idcs, out_of_sample_idcs
+    
 
 # OmniFold
 # X_gen/Y_gen: particle level features/labels
@@ -114,7 +179,20 @@ def get_model_ensemble_iter( base_model, ensemble_idx, iter_idx):
 # it: number of iterations
 # trw_ind: which previous weights to use in second step, 0 means use initial, -2 means use previous
 def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_model, fitargs, 
-             val=0.2, it=10, weights_filename=None, trw_ind=0, delete_global_arrays=False,ensemble=1):
+             val=0.2, it=10, det_model_oos=None, gen_model_oos=None, weights_filename=None, trw_ind=0, delete_global_arrays=False,ensemble=1, det_pass_reco=None, det_pass_gen=None, gen_pass_reco=None, gen_pass_gen=None ):
+
+    
+    do_out_of_sample = det_model_oos is not None
+    if det_pass_reco is None:
+        det_pass_reco = np.ones(len(X_det_i), dtype=bool)
+    if det_pass_gen is None:
+        det_pass_gen = np.ones(len(X_det_i), dtype=bool)
+    if X_gen_i is not None:
+        if gen_pass_reco is None:
+            gen_pass_reco = np.ones(len(X_gen_i), dtype=bool)
+        if det_pass_gen is None:
+            det_pass_gen = np.ones(len(X_gen_i), dtype=bool)
+
 
     do_step2 = not ( (X_gen_i is None) or (Y_gen_i is None) )
     # get arrays (possibly globally)
@@ -129,7 +207,9 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
 
     # get permutation for det
     perm_det, invperm_det, nval_det = get_permutation( winit, wdata, val )
-    det_idcs_train, det_idcs_val = perm_det[:-nval_det], perm_det[-nval_det:]
+    det_i_train, det_i_val, det_i_fail_gen = get_group_indices( perm_det, nval_det, det_pass_reco, det_pass_gen)
+
+    #perm_det[:-nval_det], perm_det[-nval_det:]
     #X_det_train, X_det_val = X_det_arr[det_idcs_train], X_det_arr[det_idcs_val]
     #Y_det_train, Y_det_val = Y_det_arr[det_idcs_train], Y_det_arr[det_idcs_val]
 
@@ -142,7 +222,8 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
 
     if do_step2:
         perm_gen, invperm_gen, nval_gen = get_permutation( winit, wdata, val, step2=True )
-        gen_idcs_train, gen_idcs_val = perm_gen[:-nval_gen], perm_gen[-nval_gen:]
+        gen_i_train, gen_i_val, gen_i_fail_reco = get_group_indices(perm_gen, nval_gen, gen_pass_gen, gen_pass_reco ) #perm_gen[:-nval_gen], perm_gen[-nval_gen:]
+        print(gen_i_fail_reco)
         #X_gen_train, X_gen_val = X_gen_arr[gen_idcs_train], X_gen_arr[gen_idcs_val]
         #Y_gen_train, Y_gen_val = Y_gen_arr[gen_idcs_train], Y_gen_arr[gen_idcs_val]
 
@@ -156,15 +237,24 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
     # iterate the procedure
     for i in range(it):
         list_model_det=[]
+        list_model_det_oos = []
         list_model_mc=[]
+        list_model_gen_oos = []
         # det filepaths properly
         for i_ensemble in range(ensemble):
             this_det_model = get_model_ensemble_iter( det_model, i_ensemble, i )
             list_model_det.append( this_det_model )
+            if do_out_of_sample:
+                this_det_model_oos = get_model_ensemble_iter( det_model_oos, i_ensemble, i )
+                list_model_det_oos.append( this_det_model_oos )
 
             if do_step2:
                 this_mc_model = get_model_ensemble_iter( mc_model, i_ensemble, i )
                 list_model_mc.append( this_mc_model )
+                if do_out_of_sample:
+                    this_gen_model_oos = get_model_ensemble_iter( gen_model_oos, i_ensemble, i )
+                    list_model_gen_oos.append( this_gen_model_oos )
+            
 
         # load weights if not model 0
         if i > 0:
@@ -172,29 +262,62 @@ def omnifold(X_gen_i, Y_gen_i, X_det_i, Y_det_i, wdata, winit, det_model, mc_mod
                 #list_model_det[i_ensemble].load_weights(list_model_det_fp[i_ensemble].format(i-1))
                 last_iter_det_model = get_model_fpath( det_model[1]['filepath'], i_ensemble, i-1 )
                 list_model_det[i_ensemble].load_weights( last_iter_det_model )
+                if do_out_of_sample:
+                    list_iter_det_oos_model = get_model_fpath( det_model_oos[1]['filepath'], i_ensemble, i-1 )
+                    list_model_det_oos[i_ensemble].load_weights( last_iter_det_oos_model )
+
                 if do_step2:
                     #list_model_mc[i_ensemble].load_weights(list_model_mc_fp[i_ensemble].format(i-1))
                     last_iter_mc_model = get_model_fpath( mc_model[1]['filepath'], i_ensemble, i-1 )
                     list_model_mc[i_ensemble].load_weights( last_iter_mc_model )
+                    if do_out_of_sample:
+                        list_iter_gen_oos_model = get_model_fpath( gen_model_oos[1]['filepath'], i_ensemble, i-1 )
+                        list_model_gen_oos[i_ensemble].load_weights( last_iter_gen_oos_model )
 
         # step 1: reweight sim to look like data
         w = np.concatenate((wdata, ws[-1]))
         #w_train, w_val = w[det_idcs_train], w[det_idcs_val]
-        rw = reweight(X_det, Y_det, w, list_model_det, 
-                      fitargs, train_idcs=det_idcs_train, val_idcs=det_idcs_val )[invperm_det]
-        ws.append(rw[len(wdata):])
+        rw_1a = np.ones(len(w))
+        in_sample = np.concatenate([det_i_train, det_i_val])
+        rw_1a[in_sample[perm_det]] = reweight(X_det, Y_det, w, list_model_det, 
+                      fitargs, train_idcs=det_i_train, val_idcs=det_i_val, apply_idcs=np.concatenate([det_i_train, det_i_val]) ) #[invperm_det]
+        rw_1a_sim = rw_1a[len(wdata):]
+        ws.append(rw_1a_sim)
         #what if I normalize?
         #ws.append(rw[len(wdata):]*np.sum(wdata)/np.sum(rw[len(wdata):]))
+        if do_out_of_sample:
+        
+            rw_perm_gen = np.ones(len(w))
+            rw_perm_gen[gen_i_fail_reco] = reweight(X_gen, Y_gen,
+                            w, list_model_det_oos, fitargs,
+                            train_idcs=gen_i_train, val_idcs=gen_i_val, apply_idcs=gen_i_fail_reco)
+            rw_1b = rw_perm_gen[invperm_gen]
+            rw_1b_sim = rw_1b[len(wdata):]
+            
+            ws.append(rw_1b_sim*rw_1a_sim)
+
 
         if do_step2:
             # step 2: reweight the prior to the learned weighting
             w = np.concatenate((ws[-1], ws[trw_ind]))
-            #w_train, w_val = w[perm_gen[:-nval_gen]], w[perm_gen[-nval_gen:]]
-            rw = reweight(X_gen, Y_gen, w, list_model_mc, 
-                          fitargs, train_idcs=gen_idcs_train, val_idcs=gen_idcs_val)[invperm_gen]
-            ws.append(rw[len(ws[-1]):])
+            rw_2a = np.ones(len(w))
+            in_sample = gen_pass_gen & gen_pass_reco
+            rw_2a[in_sample[perm_gen]] = reweight(X_gen, Y_gen, w, list_model_mc, 
+                          fitargs, train_idcs=gen_i_train, val_idcs=gen_i_val, apply_idcs=np.concatenate([gen_i_train, gen_i_val])) #[invperm_gen]
+            rw_2a_new = rw_2a[len(ws[-1]):]
+            ws.append(rw_2a_new)
             #ws.append(rw[len(ws[-1]):]*np.sum(ws[trw_ind])/np.sum(rw[len(ws[-1]):]))
             # save the weights if specified
+
+        if do_out_of_sample:
+
+            rw_perm_det = np.ones(len(w))
+            rw_perm_det[det_i_fail_gen] = reweight(X_det, Y_det,
+                            w, list_model_gen_oos, fitargs,
+                            train_idcs=det_i_train, val_idcs=det_i_val, apply_idcs=det_i_fail_gen)
+            rw_2b = rw_perm_det[invperm_det]
+            rw_2b_new = rw_2b[len(ws[-1]):]
+            ws.append(rw_2b_new*rw_2a_new)
 
         if weights_filename is not None:
             np.save(weights_filename, ws)
