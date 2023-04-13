@@ -7,6 +7,8 @@ import omnifold
 import energyflow as ef
 import numpy as np
 
+import pandas as pd
+
 # default paths
 MACHINES = {
     'multifold': {
@@ -22,8 +24,8 @@ MACHINES = {
         'results_path': '/work/kcormier/instantons/data'
     },
     'test':{
-        'data_path' : '/work/kcormier/instantons/data/test',
-        'results_path': '/work/kcormier/instantons/data/test',
+        'data_path' : '/afs/cern.ch/user/k/kcormier/workspace/CMS/sandbox/instanton/data/test/test', #'/work/kcormier/instantons/data/test', 
+        'results_path': '/afs/cern.ch/user/k/kcormier/workspace/CMS/sandbox/instanton/data/test/test',  #'/work/kcormier/instantons/data/test', 
     }
 }
 
@@ -627,8 +629,41 @@ def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=
     mc_preproc  = load_data(FILENAMES[args.dataset_mc], all_keys, max_size)
     real_preproc = load_data(FILENAMES[args.dataset_data], all_keys, max_size )
 
+    df_mc = pd.DataFrame( mc_preproc )
+    df_mc['sample'] = 'MC'
+    nsim = len(df_mc)
+
+    df_data = pd.DataFrame( real_preproc )
+    df_data['sample'] = 'Data'
+    ndata = len(df_data)
+
+    wdata = np.ones(ndata)
+    winit = np.sum(wdata)/nsim*np.ones(nsim)
+    df_mc['weight'] = winit
+    if args.MCbootstrap:
+        winit = do_mc_bootstrap(winit, nsim, SYSWEIGHTS[args.machine], args.MCbsseed )
+
+    if args.preweight:
+        preweightMC = load_data(PREWEIGHTS[args.machine],-1,max_size)
+        winit = preweightMC
+
+
+
+    if args.dataweight is not None:
+        dataweight = load_data(DATAWEIGHT[args.dataweight],-1,max_size)
+        wdata *= dataweight
+
+    df_data['weight'] = wdata
+
+    df_all = pd.concat([df_mc,df_data], ignore_index=True)
+    print(df_all)
+
     ## detector/sim setup
     X_det, Y_det = make_full_arrays( real_preproc, mc_preproc, keys=step1_keys)
+    print(X_det)
+    print(type(X_det))
+    print(Y_det)
+    print(type(Y_det))
     X_gen, Y_gen = None, None
     if step2_keys:
         X_gen, Y_gen = make_full_arrays( mc_preproc, mc_preproc, keys=step2_keys )
@@ -693,7 +728,10 @@ def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=
                   fitargs, val=args.val_frac, it=args.unfolding_iterations, trw_ind=args.step2_ind,
                   weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
     else:
-        ws = omnifold.omnifold(X_gen, Y_gen, X_det, Y_det, wdata, winit, (Model, det_args), (Model, mc_args),
+        #ws = omnifold.omnifold(X_gen, Y_gen, X_det, Y_det, wdata, winit, (Model, det_args), (Model, mc_args),
+        #          fitargs, val=args.val_frac, it=iters, trw_ind=args.step2_ind,
+        #          weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
+        ws = omnifold.omnifold_df( df_all, step1_keys, step2_keys, 'sample', 'MC', 'weight', (Model, det_args), (Model, mc_args),
                   fitargs, val=args.val_frac, it=iters, trw_ind=args.step2_ind,
                   weights_filename=os.path.join(args.results_path, 'weights', args.name),ensemble=args.ensemble)
 

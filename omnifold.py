@@ -7,11 +7,62 @@ import time
 import energyflow as ef
 import numpy as np
 
+import pandas as pd
+
 # DCTR, reweights positive distribution to negative distribution
 # X: features
 # Y: categorical labels
 # model: model with fit/predict
 # fitargs: model fit arguments
+def train_model( model, df, features, labels, weights, train_data=None, val_data=None, **fit_args):
+
+    #take a random permutation so that the training order is random
+    permutation = np.random.permutation(df.index)
+    invperm = np.argsort(permutation)
+    df_perm = df.reindex( permutation )
+    df_perm = df_perm.dropna()
+
+    val_tuple = None
+    if val_data is not None: 
+        val_sel = df_perm.iloc[val_data]
+        val_tuple=( val_sel[features], np.vstack(val_sel[labels].to_numpy()), val_sel[weights])    
+        
+
+    train_df = df[train_data] if train_data is not None else df
+    model.fit( df_perm[features], np.vstack(df_perm[labels].to_numpy()), sample_weight=df_perm[weights], **fit_args, validation_data=val_tuple )
+    return model
+        
+
+def reweight_df(df, features, labels, weights, model, fitargs, train_data=None, val_data=None, apply_data=None):
+
+    fitargs_tf={}
+    for argkey in fitargs.keys():
+      if "weight_clip" not in argkey:
+        fitargs_tf[argkey]=fitargs[argkey]
+    preds_ensemble=[]
+    ensemble=1
+    if isinstance(model,list):
+      ensemble=len(model)
+    for i_ensemble in range(ensemble):
+        print("ensemble",i_ensemble)
+        if isinstance(model,list):
+          model_ensemble=model[i_ensemble]
+        else:
+          model_ensemble=model
+        filepath_ensemble = model_ensemble.filepath
+        #model_ensemble.fit(X, Y, sample_weight=w, **fitargs_tf, **val_dict)
+        model_ensemlbe = train_model( model_ensemble, df, features, labels, weights, train_data=train_data, val_data=val_data )
+        model_ensemble.save_weights(filepath_ensemble)
+        apply_df = df[apply_data] if apply_data is not None else df
+        preds = model_ensemble.predict( apply_df[features], batch_size=fitargs.get('batch_size', 500))[:,1]
+        preds_ensemble.append( preds )
+
+    preds_mean = np.mean(np.array(preds_ensemble),axis=0)
+    w = apply_df[weights]
+    w *= np.clip(preds_mean/(1 - preds_mean + 10**-50), fitargs.get('weight_clip_min', 0.), fitargs.get('weight_clip_max', np.inf))
+    return w
+
+
 def reweight(X, Y, w, model, fitargs, val_data=None, apply_data=None, train_idcs=None, val_idcs=None, apply_idcs=None):
 
     from_idcs = True
@@ -104,6 +155,71 @@ def get_model_ensemble_iter( base_model, ensemble_idx, iter_idx):
     new_model = base_model[0](**model_args)
     return new_model
 
+
+# OmniFold
+# X_gen/Y_gen: particle level features/labels
+# X_det/Y_det: detector level features/labels, note these should be ordered as (data, sim)
+# wdata/winit: initial weights of the data/simulation
+# model: model with fit/predict
+# fitargs: model fit arguments
+# it: number of iterations
+# trw_ind: which previous weights to use in second step, 0 means use initial, -2 means use previous
+def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_model, mc_model, fitargs, 
+             val=0.2, it=10, weights_filename=None, trw_ind=0, delete_global_arrays=False,ensemble=1):
+
+    # initialize the truth weights to the prior
+
+    do_step2 = True
+    # iterate the procedure
+    for i in range(it):
+        list_model_det=[]
+        list_model_mc=[]
+        # det filepaths properly
+        for i_ensemble in range(ensemble):
+            this_det_model = get_model_ensemble_iter( det_model, i_ensemble, i )
+            list_model_det.append( this_det_model )
+
+            if do_step2:
+                this_mc_model = get_model_ensemble_iter( mc_model, i_ensemble, i )
+                list_model_mc.append( this_mc_model )
+
+        # load weights if not model 0
+        if i > 0:
+            for i_ensemble in range(ensemble):
+                #list_model_det[i_ensemble].load_weights(list_model_det_fp[i_ensemble].format(i-1))
+                last_iter_det_model = get_model_fpath( det_model[1]['filepath'], i_ensemble, i-1 )
+                list_model_det[i_ensemble].load_weights( last_iter_det_model )
+                if do_step2:
+                    #list_model_mc[i_ensemble].load_weights(list_model_mc_fp[i_ensemble].format(i-1))
+                    last_iter_mc_model = get_model_fpath( mc_model[1]['filepath'], i_ensemble, i-1 )
+                    list_model_mc[i_ensemble].load_weights( last_iter_mc_model )
+
+        # step 1: reweight sim to look like data
+        ws = []
+        ws.append(df[ df[labels] == label_MC ][weights].tolist())
+        #w_train, w_val = w[det_idcs_train], w[det_idcs_val]
+        df['numeric_labels'] = list( ef.utils.to_categorical((df[labels] == label_MC).astype( int )) )
+        #df['numeric_labels'] = df['numeric_labels'].astype(np.ndarray)
+        print(df['numeric_labels'])
+        rw = reweight_df(df, features_det, 'numeric_labels', weights, list_model_det, fitargs )#, train_data=det_idcs_train, val_idcs=det_idcs_val )
+        ws.append(rw[ df[labels] == label_MC ].tolist())
+        #what if I normalize?
+        #ws.append(rw[len(wdata):]*np.sum(wdata)/np.sum(rw[len(wdata):]))
+
+        if do_step2:
+            # step 2: reweight the prior to the learned weighting
+            print(ws)
+            w = np.concatenate((ws[-1], ws[trw_ind]))
+            #w_train, w_val = w[perm_gen[:-nval_gen]], w[perm_gen[-nval_gen:]]
+            rw = reweight_df(df, features_gen, 'numeric_labels', weights, list_model_mc, fitargs)
+            ws.append(rw[len(ws[-1]):].tolist())
+            #ws.append(rw[len(ws[-1]):]*np.sum(ws[trw_ind])/np.sum(rw[len(ws[-1]):]))
+            # save the weights if specified
+
+        if weights_filename is not None:
+            np.save(weights_filename, ws)
+            print("save weight ",weights_filename) 
+    return ws
 
 # OmniFold
 # X_gen/Y_gen: particle level features/labels

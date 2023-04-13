@@ -12,8 +12,8 @@
 
 
 # each node has local /scratch space to be used during job run
-mkdir -p /scratch/$USER/${SLURM_JOB_ID}
-export TMPDIR=/scratch/$USER/${SLURM_JOB_ID}
+#mkdir -p /scratch/$USER/${SLURM_JOB_ID}
+#export TMPDIR=/scratch/$USER/${SLURM_JOB_ID}
 
 
 # Slurm reserves two GPU's (according to requirement above), those ones that are recorded in shell variable CUDA_VISIBLE_DEVICES
@@ -22,8 +22,9 @@ echo CUDA_VISIBLE_DEVICES : $CUDA_VISIBLE_DEVICES
 # QUICK TESTING
 #python mytrain.py -m test  -u unifold -data Pythia8CP1_test -mc EPOS_test  -e 3 -ui 2 --save-best-only --weight-clip-max 100.0 --testing
 g=""
-for argset in "-m unifold -u unifold" "-m multifold -u manyfold" "-m multifold -u manyfold --eff-acc" "-m multifold -u manyfold --dosysweight --dataweight gen_CP5_to_EPOS_multifold" "-m multifold -u manyfold --dogenreweight --dataweight gen_CP5_to_EPOS_multifold"; do
-    python mytrain.py -data Pythia8CP1 -mc Pythia8EPOS  -e 3 -ui 2 --save-best-only --weight-clip-max 100.0 --testing ${argset}
+for argset in "-m test -u manyfold" #"-m test -u unifold" "-m test -u manyfold" #"-m test -u manyfold --eff-acc" "-m test -u manyfold --dosysweight --dataweight gen_CP5_to_EPOS_multifold" #"-m test -u manyfold --dogenreweight --dataweight gen_CP5_to_EPOS_multifold"; do
+  do
+    python mytrain.py -data Pythia8CP1_test -mc EPOS_test  -e 3 -ui 2 --save-best-only --weight-clip-max 100.0 --testing ${argset}
     g="${g} $?"
 done
 echo $g
@@ -149,5 +150,5 @@ echo $g
 #python mytrain.py -m omnifold -u omnifold -mc Pythia8EPOS -data Zerobias --input-dim 3 -e 50 -ui 20 --weight-clip-max 10.0 --save-best-only -i 5
 
 # cleaning of temporal working dir when job was completed:
-rm -rf /scratch/$USER/${SLURM_JOB_ID}
+#rm -rf /scratch/$USER/${SLURM_JOB_ID}
 
