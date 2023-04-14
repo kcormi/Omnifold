@@ -552,6 +552,8 @@ def load_data( files, keys, max_size=None ):
     else:
         preproc = { k : v[:max_size] for k, v in preproc.items() }
 
+    #This should be unnecessary, but for some reason still seems required? FIX ME
+    preproc = { k: preproc[k] for k in keys }
     return preproc
 
 
@@ -670,8 +672,6 @@ def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=
 
     df_data['weight'] = wdata
     df_mc['weight'] = winit
-    print(df_mc)
-    print(df_data)
     df_all = pd.concat([df_mc,df_data], ignore_index=True)
 
     df_all = standardize_inputs( df_all, step1_keys + step2_keys )
