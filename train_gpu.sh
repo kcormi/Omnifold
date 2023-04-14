@@ -22,9 +22,9 @@ echo CUDA_VISIBLE_DEVICES : $CUDA_VISIBLE_DEVICES
 # QUICK TESTING
 #python mytrain.py -m test  -u unifold -data Pythia8CP1_test -mc EPOS_test  -e 3 -ui 2 --save-best-only --weight-clip-max 100.0 --testing
 g=""
-for argset in "-m test -u manyfold" #"-m test -u unifold" "-m test -u manyfold" #"-m test -u manyfold --eff-acc" "-m test -u manyfold --dosysweight --dataweight gen_CP5_to_EPOS_multifold" #"-m test -u manyfold --dogenreweight --dataweight gen_CP5_to_EPOS_multifold"; do
+for argset in "-m multifold -u manyfold --eff-acc" #"-m test -u unifold" "-m test -u manyfold" #"-m test -u manyfold --eff-acc" "-m test -u manyfold --dosysweight --dataweight gen_CP5_to_EPOS_multifold" #"-m test -u manyfold --dogenreweight --dataweight gen_CP5_to_EPOS_multifold"; do
   do
-    python mytrain.py -data Pythia8CP1_test -mc EPOS_test  -e 3 -ui 2 --save-best-only --weight-clip-max 100.0 --testing ${argset}
+    python mytrain.py -data Pythia8CP1 -mc Pythia8CP5  -e 200 -ui 10 --ensemble 5 --save-best-only --weight-clip-max 100.0 --testing ${argset} #--testing
     g="${g} $?"
 done
 echo $g
