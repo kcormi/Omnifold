@@ -25,22 +25,28 @@ def split_training_validation_selections( df, val_frac ):
 def train_model( model, df, features, labels, weights, train_idx=None, val_idx=None, val_frac=None, perm=None, **fit_args):
 
     #take a random permutation so that the training order is random
-    permutation = np.random.permutation(df.index)
-    df_perm = df.reindex( permutation )
+    train = df.loc[ train_idx ]
+    val = df.loc[ val_idx ]
+
+    perm_train = np.random.permutation(train.index)
+    train = train.reindex( perm_train)
+
+    perm_val = np.random.permutation(val.index)
+    val = val.reindex( perm_val )
+
 
     if val_frac is not None:
         train_idx, val_idx = split_training_validation_selections( df_perm, val_frac)
 
     val_tuple = None
-    if val_idx is not None: 
-        val_idx = df_perm.loc[val_idx]
-        val_tuple=( val_idx[features], np.vstack(val_idx[labels].to_numpy()), val_idx[weights])    
-        
+    if val_idx is not None:
+        val_tuple=( val[features], np.vstack(val[labels].to_numpy()), val[weights])
+
 
     train_df = df.loc[train_idx] if train_idx is not None else df
-    model.fit( df_perm[features], np.vstack(df_perm[labels].to_numpy()), sample_weight=df_perm[weights], **fit_args, validation_data=val_tuple )
+    model.fit( train[features], np.vstack(train[labels].to_numpy()), sample_weight=train[weights], **fit_args, validation_data=val_tuple )
     return model
-        
+
 
 def reweight_df(df, features, labels, weights, model, fitargs, train_idx=None, val_idx=None, val_frac=None, apply_idx=None, apply_df=None):
 
@@ -102,7 +108,7 @@ def get_model_ensembles( n_models, base_model, iter_idx, load_weights=True):
 
 def build_alt_weight_df( df, features, labels, weights, label_MC, new_weights, invert_labels=False ):
     #df = df[features + [labels] + [weights]]
-    
+
     df_orig_mc = df[ df[labels] == label_MC ].copy()
     df_reweighted_mc =  df_orig_mc.copy()
     df_reweighted_mc[weights] = new_weights
@@ -113,20 +119,23 @@ def build_alt_weight_df( df, features, labels, weights, label_MC, new_weights, i
     label_vals = (df_gen[labels] != label_MC)
     if invert_labels:
         label_vals = ~label_vals
-    
+
     df_gen['numeric_labels'] = list( ef.utils.to_categorical( label_vals.astype(int) ) )
     return df_gen
 
 
 def do_check_plots( df, features, weights, labels, figname, nbins=20):
     if len(features) > 1:
-        g = sns.PairGrid(df[features+[labels]], hue=labels)
+        g = sns.PairGrid(df[features+[labels, weights]], hue=labels)
         g.map_diag(sns.histplot)
         g.map_offdiag(sns.histplot)
-    else:
-        sns.histplot( data=df, x=features[0], weights= weights, hue=labels, bins=nbins )
-    plt.savefig(figname)
-    plt.close()
+        plt.savefig(figname)
+        plt.close()
+
+    for feat in features:
+        sns.histplot( data=df, x=feat, weights=weights, hue=labels, bins=nbins )
+        plt.savefig(figname.replace('.pdf',f'_{feat}.pdf'))
+        plt.close()
 
 # OmniFold
 # X_gen/Y_gen: particle level features/labels
@@ -144,14 +153,24 @@ def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_
 
     df_is_MC = df[labels] == label_MC 
     # initialize the truth weights to the prior
-    do_step2 = True
+    do_step2 = features_gen is not None
+
+    #set these up so the same training/validation are used for every iteration
+    df['step1_val'] = df.apply( lambda x: np.random.random() < val, axis=1)
+    df['step2_val'] = df.apply( lambda x: np.random.random() < val, axis=1)
+
+    step1_val_idx = lambda df: df[ df['step1_val'] ].index
+    step2_val_idx = lambda df: df[ df['step2_val'] ].index
+    step1_train_idx = lambda df: df[ ~df['step1_val'] ].index
+    step2_train_idx = lambda df: df[ ~df['step2_val'] ].index
 
     if do_plots:
-            plot_dir = './validation_plots'
+            plot_dir = './validation_plots3'
             if not os.path.exists(plot_dir):
-                os.mkdir(plot_dir)    
+                os.mkdir(plot_dir)
 
-            do_check_plots(df[ gen_cut ], features_gen, weights, labels, figname=os.path.join(plot_dir,'initial_gen.pdf'), nbins=30)
+            if features_gen:
+                do_check_plots(df[ gen_cut ], features_gen, weights, labels, figname=os.path.join(plot_dir,'initial_gen.pdf'), nbins=30)
             do_check_plots(df[ reco_cut ], features_det, weights, labels, figname=os.path.join(plot_dir, 'initial_det.pdf'), nbins=30)
             #do_check_plots(df, features_det + features_gen, weights, labels, figname=os.path.join(plot_dir, 'initial_full.pdf'),  nbins=30)
 
@@ -159,7 +178,6 @@ def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_
     ws.append(df[ df_is_MC ][weights].tolist())
     # iterate the procedure
     for i in range(it):
-        
         df.loc[ df_is_MC, weights] = ws[-1] #update the weights from last iteration
 
         # step 1: reweight sim to look like data
@@ -169,7 +187,7 @@ def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_
         df_det = df[ reco_cut ]
 
         step1_idx = df_det[df_is_MC].index
-        step1_weights = reweight_df(df_det, features_det, 'numeric_labels', weights, list_model_det, fitargs, val_frac=val, apply_idx=step1_idx )#, train_idx=det_idcs_train, val_idcs=det_idcs_val )
+        step1_weights = reweight_df(df_det, features_det, 'numeric_labels', weights, list_model_det, fitargs, train_idx=step1_train_idx(df_det), val_idx=step1_val_idx(df_det), apply_idx=step1_idx )#, train_idx=det_idcs_train, val_idcs=det_idcs_val )
         new_weights = df[ df_is_MC ][weights].copy()
         new_weights.loc[ step1_idx ] = step1_weights
         print(step1_idx)
@@ -186,7 +204,7 @@ def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_
             df_det_ooa = df[ (~reco_cut(df)) & df_is_MC ]
 
             step1b_idx = df_det_ooa.index
-            step1b_weights = reweight_df( df_mc_1b, features_gen, 'numeric_labels', weights, list_model_1b, fitargs, val_frac=val, apply_df=df_det_ooa )
+            step1b_weights = reweight_df( df_mc_1b, features_gen, 'numeric_labels', weights, list_model_1b, fitargs, val_idx=step1_val_idx(df_mc_1b), train_idx=step1_train_idx(df_mc_1b), apply_df=df_det_ooa )
             new_weights.loc[ step1b_idx ] = step1b_weights
 
         ws.append( new_weights.tolist())
@@ -198,7 +216,7 @@ def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_
         if do_step2:
             # step 2: reweight the prior to the learned weighting
             list_model_mc =  get_model_ensembles( ensemble, mc_model, i,  load_weights = (i > 0 ) )
-            
+
             df_gen = df[ df_is_MC].copy()
             df_gen[weights] = ws[trw_ind] # load "original" MC weights
             new_weights = df_gen[weights].copy()
@@ -207,7 +225,7 @@ def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_
             df_gen = df_gen[ gen_cut ]
 
             step2_idx = df_gen[ dfgen_is_orig_MC ].index
-            step2_weights = reweight_df(df_gen, features_gen, 'numeric_labels', weights, list_model_mc, fitargs, val_frac = val, apply_idx=step2_idx)
+            step2_weights = reweight_df(df_gen, features_gen, 'numeric_labels', weights, list_model_mc, fitargs, val_idx=step2_val_idx(df_gen), train_idx=step2_train_idx(df_gen), apply_idx=step2_idx)
             new_weights.loc[ step2_idx ] = step2_weights
             #ws.append(rw[len(ws[-1]):]*np.sum(ws[trw_ind])/np.sum(rw[len(ws[-1]):]))
             # save the weights if specified
@@ -222,7 +240,7 @@ def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_
                 df_gen_ooa = df[ (~gen_cut(df)) & df_is_MC ]
 
                 step2b_idx = df_gen_ooa.index
-                step2b_weights = reweight_df( df_det_2b, features_det, 'numeric_labels', weights, list_model_2b, fitargs, val_frac=val, apply_df=df_gen_ooa )
+                step2b_weights = reweight_df( df_det_2b, features_det, 'numeric_labels', weights, list_model_2b, fitargs, val_idx=step2_val_idx(df_det_2b), train_idx=step2_val_idx(df_det_2b), apply_df=df_gen_ooa )
                 new_weights.loc[ step2b_idx ] = step2b_weights
                 #print(step2b_idx)
 
@@ -231,7 +249,7 @@ def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_
             if do_plots:
                 df_gen.loc[ dfgen_is_orig_MC, weights] = step2_weights
                 do_check_plots( df_gen[gen_cut], features_gen, weights, labels, figname=os.path.join(plot_dir,f'iter{i}_step2_gen.pdf'), nbins=30 )
-        
+
                 df.loc[ df_is_MC, weights] = new_weights
                 do_check_plots(df[reco_cut], features_det, weights, labels, figname=os.path.join(plot_dir,f'iter{i}_step2_det.pdf'), nbins=30)
 
@@ -240,6 +258,9 @@ def omnifold_df( df, features_det, features_gen, labels, label_MC, weights, det_
         if weights_filename is not None:
             np.save(weights_filename, ws)
             print(f"save weight {weights_filename}.npy") 
+
+        if features_gen is None:
+            break
 
     return ws
 
