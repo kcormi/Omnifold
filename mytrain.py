@@ -8,6 +8,7 @@ import energyflow as ef
 import numpy as np
 
 import pandas as pd
+from sklearn.preprocessing import QuantileTransformer
 
 # default paths
 MACHINES = {
@@ -158,29 +159,40 @@ def main(arg_list):
               train_omnifold_fitgen(i)
             else:
               train_omnifold(i)
-        elif args.unfolding == 'manyfold':
+        elif args.unfolding == 'manyfold' or args.unfolding == 'unifold':
+            
+            do_unifold =  args.unfolding == 'unifold'
+                
             recokeys = ['reco_ntrk','reco_spherocity','reco_thrust','reco_broaden','reco_transversespherocity','reco_transversethrust','reco_isotropy','reco_pt']
             genkeys = ['gen_nch','gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy','gen_pt']
             args.name = name.format(i)
+
+            reco_cut = lambda df: (~df['reco_ntrk'].isna()) & (df['reco_ntrk'] > 5)
+            gen_cut  = lambda df:  df['gen_nch'] > 2
             if args.dosysweight:
-              train_manyfold(i, step1_keys=genkeys+recokeys, step2_keys=None, iters=1)
+              step1_keys = genkeys+recokeys
+              step2_keys = None
             elif args.dogenreweight:
-              train_manyfold(i, step1_keys=genkeys, step2_keys=None, iters=1)
+              step1_keys = genkeys
+              step2_keys = None
+              reco_cut = None
+            elif args.dorecoreweight:
+                step1_keys = recokeys
+                step2_keys = None
+                gen_cut = None
             else:
-              train_manyfold(i,
-                            step1_keys=recokeys,
-                            step2_keys=genkeys,
-                            iters=args.unfolding_iterations,
-                            do_acc_eff=args.eff_acc,
-                            reco_cut = lambda df: (~df['reco_ntrk'].isna()) & (df['reco_ntrk'] > 5),
-                            gen_cut  = lambda df:  df['gen_nch'] > 2
-                            )
-            #else:
-            #  train_manyfold(i, step1_keys=recokeys, step2_keys=genkeys, iters=args.unfolding_iterations, 
-            #                reco_cut = lambda df: ~df['reco_ntrk'].isna())
-        elif args.unfolding == 'unifold':
-            args.name = name + '_Rep-{}'.format(i)
-            train_unifold(i)
+                step1_keys = recokeys
+                step2_keys = genkeys
+            train_manyfold(i,
+                          step1_keys=step1_keys,
+                          step2_keys=step2_keys,
+                          iters=args.unfolding_iterations,
+                          do_acc_eff=args.eff_acc,
+                          reco_cut = reco_cut,
+                          gen_cut  = gen_cut,
+                          do_unifold=do_unifold,
+                          extra_keys = ['reco_ntrk']
+                          )
 
 def construct_parser(args):
 
@@ -229,6 +241,7 @@ def construct_parser(args):
 
     parser.add_argument('--dosysweight', action='store_true')
     parser.add_argument('--dogenreweight',action='store_true')
+    parser.add_argument('--dorecoreweight',action='store_true')
 
     parser.add_argument('--dataweight',default=None,choices=[None,'gen_CP5_to_EPOS_multifold'])
 
@@ -609,25 +622,43 @@ def do_mc_bootstrap( winit, nsim, sysweights, seed ):
           winit *= np.random.poisson(1.0,nsim)
       return winit
 
-def standardize_inputs( df, cols ):
+def basic_standardization(df, col ):
+    return (df[col] - df[col].mean() )/df[col].std()
+
+def advanced_standardization(df, col):
+   qt = QuantileTransformer(output_distribution='normal', n_quantiles=min(1000, len(df)//20)) 
+   np_arr = df[col].to_numpy().reshape(-1,1)
+   vals = qt.fit_transform( np_arr ) 
+   ret = np.concatenate(vals)
+   return ret
+
+def standardize_inputs( df, cols, standard_func=basic_standardization ):
 
     for col in cols:
         sname = f'{col}_standard'
         df[sname] = df[col]
         df_not_na = df[ ~df[col].isna() ]
-        df.loc[df_not_na.index, sname] = (df_not_na[col] - df_not_na[col].mean())/df_not_na[col].std()
+        df.loc[df_not_na.index, sname] = standard_func( df_not_na, col ) 
     return df
 
 
-def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=None, gen_cut=None ):
+def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=None, gen_cut=None, do_unifold=False, extra_keys=None ):
 
+    if do_unifold:
+        if step2_keys is None:
+            step2_keys = [ None for _ in step1_keys ]
+        print(step1_keys, step2_keys)
+        for k1, k2 in zip(step1_keys, step2_keys):
+            print(k1, k2)
+            train_manyfold(i, [k1], k2 if k2 is None else [k2], iters, do_acc_eff=do_acc_eff, reco_cut=reco_cut, gen_cut=gen_cut, extra_keys=extra_keys)
+        return 
 
     if reco_cut is None:
         reco_cut = lambda df: df.index.map( lambda x: True ) #don't apply any cut
     if gen_cut is None:
         gen_cut  = lambda df: df.index.map( lambda x: True ) #don't apply any cut
 
-    extra_keys = ['charged','tracks']
+    #extra_keys = ['charged','tracks']
     iters = args.unfolding_iterations
     if args.testing:
         step1_keys = step1_keys[:min(1,len(step1_keys)+1)]
@@ -636,10 +667,14 @@ def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=
     start = time.time()
     print('ManyFolding')
 
-    max_size = 100_000 if args.testing else None
-    all_keys = step1_keys + extra_keys
+    max_size = 10_000 if args.testing else None
+    all_keys = step1_keys #+ extra_keys
     if step2_keys:
         all_keys += step2_keys
+    for k in extra_keys:
+        if k not in all_keys:
+            all_keys.append(k)
+
     mc_preproc  = load_data(FILENAMES[args.dataset_mc], all_keys, max_size)
     real_preproc = load_data(FILENAMES[args.dataset_data], all_keys, max_size )
 
@@ -674,10 +709,13 @@ def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=
     df_mc['weight'] = winit
     df_all = pd.concat([df_mc,df_data], ignore_index=True)
 
-    df_all = standardize_inputs( df_all, step1_keys + step2_keys )
+    df_all = standardize_inputs( df_all, all_keys, standard_func = advanced_standardization )
     step1_keys = [f'{k}_standard' for k in step1_keys]
-    step2_keys = [f'{k}_standard' for k in step2_keys]
-    for key in step1_keys + step2_keys:
+    new_keys = step1_keys
+    if step2_keys is not None:
+        step2_keys = [f'{k}_standard' for k in step2_keys]
+        new_keys = step1_keys + step2_keys
+    for key in new_keys:
         print(f'key {key}, mean {df_all[key].mean()} std {df_all[key].std()}')
 
 
