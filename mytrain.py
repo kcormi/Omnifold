@@ -18,7 +18,7 @@ MACHINES = {
     },
     'omnifold': {
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
-        'results_path': '/work/kcormier/instans/data'
+        'results_path': '/work/kcormier/instantons/data'
     },
     'unifold':{
         'data_path': '/work/jinw/omnifold/OmniFold/preselect',
@@ -167,7 +167,7 @@ def main(arg_list):
             genkeys = ['gen_nch','gen_spherocity','gen_thrust','gen_broaden','gen_transversespherocity','gen_transversethrust','gen_isotropy','gen_pt']
             args.name = name.format(i)
 
-            reco_cut = lambda df: (~df['reco_ntrk'].isna()) & (df['reco_ntrk'] > 5)
+            reco_cut = lambda df: ~df['reco_ntrk'].isna() 
             gen_cut  = lambda df:  df['gen_nch'] > 2
             if args.dosysweight:
               step1_keys = genkeys+recokeys
@@ -680,13 +680,15 @@ def train_manyfold(i, step1_keys, step2_keys, iters, do_acc_eff=False, reco_cut=
 
     df_mc = pd.DataFrame( mc_preproc )
     df_mc['sample'] = 'MC'
-    df_mc = df_mc[ reco_cut(df_mc) | gen_cut(df_mc) ]
+    #df_mc = df_mc[ reco_cut(df_mc) | gen_cut(df_mc) ]
     nsim = len(df_mc)
+    print(f'nsim: {nsim}')
 
     df_data = pd.DataFrame( real_preproc )
     df_data['sample'] = 'Data'
-    df_data = df_data[ reco_cut ]
+    #=df_data = df_data[ reco_cut ]
     ndata = len(df_data)
+    print(f'ndata: {ndata}')
 
     wdata = np.ones(ndata)
     winit = np.sum(wdata)/nsim*np.ones(nsim)
